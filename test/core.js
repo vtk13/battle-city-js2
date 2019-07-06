@@ -14,4 +14,19 @@ describe('server', ()=>{
         });
         server.subscribe([1]);
     });
+    // second player receives events from first player
+    it('sync 2 clients', done=>{
+        let server = new BCServer({
+            1: [{}, {}],
+        });
+        let session1 = server.createSession();
+        let session2 = server.createSession();
+        session2.on('step', (stepId, sectorId, userActions)=>{
+            assert.equal(stepId, 234);
+            assert.equal(sectorId, 1);
+            assert.deepEqual(userActions, [{key: 'w'}]);
+            done();
+        });
+        session1.step(234, 1, 'A', [{key: 'w'}]);
+    });
 });
