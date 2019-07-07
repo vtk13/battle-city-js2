@@ -13,7 +13,7 @@ class BCSession extends EventEmitter {
         this.server.unsubscribe(sectorIds, this);
     }
     step(stepId, sectorId, hash, userActions){
-        this.server.step(stepId, sectorId, hash, userActions);
+        this.server.step(stepId, sectorId, hash, userActions, this);
     }
     setSector(sectorId, dataStepId, data){
         this.server.setSector(sectorId, dataStepId, data);
@@ -27,6 +27,27 @@ class BCSector {
         this.data = data;
         this.sessions = {};
         this.awaitingPlayers = [];
+        this.lastSteps = {};
+    }
+    addHash(session, stepId, hash){
+        let ls = this.lastSteps[stepId] = this.lastSteps[stepId] || {n: 0, hashes: {}};
+        ls.hashes[hash] = ls.hashes[hash] || [];
+        ls.hashes[hash].push(session);
+        ls.n++;
+        // TODO: optimize Object.keys
+        if (ls.n < Object.keys(this.sessions).length)
+            return;
+        let hashes = Object.entries(ls.hashes).sort((a, b)=>b[1].length-a[1].length);
+        if (hashes.length<=1)
+            return;
+        if (hashes[0][1].length==hashes[1][1].length){
+            for (let sessionId in this.sessions)
+                this.sessions[sessionId].emit('error');
+        } else {
+            for (let i=1; i<hashes.length; i++)
+                for (let session of hashes[i][1])
+                    session.emit('error');
+        }
     }
 }
 
@@ -38,7 +59,7 @@ class BCServer extends EventEmitter {
         this.sessions = {};
     }
     createSession(){
-        let id = ++this.nextSessionId;
+        let id = this.nextSessionId++;
         return this.sessions[id] = new BCSession(id, this);
     }
     subscribe(sectorIds, session){
@@ -58,9 +79,11 @@ class BCServer extends EventEmitter {
             delete sector.sessions[session.id];
         }
     }
-    step(stepId, sectorId, hash, userActions){
+    // TODO: session is circular dependency
+    step(stepId, sectorId, hash, userActions, session){
         let sector = this.sectors[sectorId];
         sector.stepId = Math.max(sector.stepId, stepId);
+        sector.addHash(session, stepId, hash);
         for (let sessionId in sector.sessions){
             let session = sector.sessions[sessionId];
             session.emit('step', stepId, sectorId, userActions);

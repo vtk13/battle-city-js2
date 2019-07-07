@@ -81,4 +81,40 @@ describe('server', ()=>{
         session1.step(235, 1, 'A', [{key: 'w'}]);
         assert.equal(called, 1);
     });
+    it('kick all users on wrong hash', done=>{
+        let server = new BCServer({
+            1: new BCSector(0, [{}, {}]),
+        });
+        let n = 0;
+        let onError = ()=>{
+            n++;
+            if (n==2)
+                done();
+        };
+        let session1 = server.createSession();
+        session1.subscribe([1]);
+        session1.on('error', onError);
+        let session2 = server.createSession();
+        session2.subscribe([1]);
+        session2.on('error', onError);
+        session1.step(234, 1, 'A', []);
+        session2.step(234, 1, 'B', []);
+    });
+    it('kick user on wrong hash', done=>{
+        let server = new BCServer({
+            1: new BCSector(0, [{}, {}]),
+        });
+        let session1 = server.createSession();
+        session1.subscribe([1]);
+        session1.on('error', ()=>assert(false));
+        let session2 = server.createSession();
+        session2.subscribe([1]);
+        session2.on('error', ()=>assert(false));
+        let session3 = server.createSession();
+        session3.subscribe([1]);
+        session3.on('error', done);
+        session1.step(234, 1, 'B', []);
+        session2.step(234, 1, 'B', []);
+        session3.step(234, 1, 'X', []);
+    });
 });
