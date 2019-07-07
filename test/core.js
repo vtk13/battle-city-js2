@@ -1,10 +1,10 @@
 const assert = require('assert');
-const BCServer = require('../src/core/server');
+const {BCServer, BCSector} = require('../src/core/server');
 
 describe('server', ()=>{
     it('player connects to the server and gets sector objects', done=>{
         let server = new BCServer({
-            1: [{}, {}],
+            1: new BCSector(0, [{}, {}]),
         });
         let session = server.createSession();
         session.on('subscribe', (sectorId, objects)=>{
@@ -16,7 +16,7 @@ describe('server', ()=>{
     });
     it('second player receives events from first player', done=>{
         let server = new BCServer({
-            1: [{}, {}],
+            1: new BCSector(0, [{}, {}]),
         });
         let session1 = server.createSession();
         let session2 = server.createSession();
@@ -30,7 +30,7 @@ describe('server', ()=>{
     });
     it('players receive the same step events for each player', done=>{
         let server = new BCServer({
-            1: [{}, {}],
+            1: new BCSector(0, [{}, {}]),
         });
         let session1 = server.createSession();
         let session2 = server.createSession();
@@ -44,14 +44,14 @@ describe('server', ()=>{
     });
     it('player receives actual data on connect', ()=>{
         let server = new BCServer({
-            1: [{}, {}],
+            1: new BCSector(0, [{}, {}]),
         });
         let session1 = server.createSession();
         session1.on('subscribe', (sectorId, objects)=>{
             assert.deepEqual(objects, [{}, {}]);
         });
         session1.on('getSector', sectorId=>{
-            session1.setSector(sectorId, [{}, {}, {}]);
+            session1.setSector(sectorId, 234, [{}, {}, {}]);
         });
         session1.subscribe([1]);
         session1.step(234, 1, 'A', [{key: 'w'}]);
