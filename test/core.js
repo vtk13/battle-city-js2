@@ -2,8 +2,7 @@ const assert = require('assert');
 const BCServer = require('../src/core/server');
 
 describe('server', ()=>{
-    // player connects to the server and gets sector objects
-    it('subscribe', done=>{
+    it('player connects to the server and gets sector objects', done=>{
         let server = new BCServer({
             1: [{}, {}],
         });
@@ -15,8 +14,7 @@ describe('server', ()=>{
         });
         session.subscribe([1]);
     });
-    // second player receives events from first player
-    it('sync 2 clients', done=>{
+    it('second player receives events from first player', done=>{
         let server = new BCServer({
             1: [{}, {}],
         });
@@ -29,5 +27,19 @@ describe('server', ()=>{
             done();
         });
         session1.step(234, 1, 'A', [{key: 'w'}]);
+    });
+    it('players receive the same step events for each player', done=>{
+        let server = new BCServer({
+            1: [{}, {}],
+        });
+        let session1 = server.createSession();
+        let session2 = server.createSession();
+        let n = 0;
+        session1.on('step', ()=>{
+            if (++n==2)
+                done();
+        });
+        session1.step(234, 1, 'A', [{key: 'w'}]);
+        session2.step(234, 1, 'A', [{key: 's'}]);
     });
 });
