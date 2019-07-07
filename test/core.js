@@ -7,6 +7,7 @@ describe('server', ()=>{
             1: new BCSector(0, [{}, {}]),
         });
         let session = server.createSession();
+        // TODO: add dataStepId
         session.on('subscribe', (sectorId, objects)=>{
             assert.equal(sectorId, 1);
             assert.deepEqual(objects, [{}, {}]);
@@ -47,9 +48,6 @@ describe('server', ()=>{
             1: new BCSector(0, [{}, {}]),
         });
         let session1 = server.createSession();
-        session1.on('subscribe', (sectorId, objects)=>{
-            assert.deepEqual(objects, [{}, {}]);
-        });
         session1.on('getSector', sectorId=>{
             session1.setSector(sectorId, 234, [{}, {}, {}]);
         });
