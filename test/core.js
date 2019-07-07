@@ -27,6 +27,7 @@ describe('server', ()=>{
             assert.deepEqual(userActions, [{key: 'w'}]);
             done();
         });
+        session2.subscribe([1]);
         session1.step(234, 1, 'A', [{key: 'w'}]);
     });
     it('players receive the same step events for each player', done=>{
@@ -40,6 +41,7 @@ describe('server', ()=>{
             if (++n==2)
                 done();
         });
+        session1.subscribe([1]);
         session1.step(234, 1, 'A', [{key: 'w'}]);
         session2.step(234, 1, 'A', [{key: 's'}]);
     });
@@ -60,5 +62,23 @@ describe('server', ()=>{
             done();
         });
         session2.subscribe([1]);
+    });
+    it('player is unsubscribed', ()=>{
+        let server = new BCServer({
+            1: new BCSector(0, [{}, {}]),
+        });
+        let session1 = server.createSession();
+        session1.subscribe([1]);
+        let session2 = server.createSession();
+        session2.subscribe([1]);
+        let called = 0;
+        session2.on('step', ()=>{
+            called++;
+        });
+        session1.step(234, 1, 'A', [{key: 'w'}]);
+
+        session2.unsubscribe([1]);
+        session1.step(235, 1, 'A', [{key: 'w'}]);
+        assert.equal(called, 1);
     });
 });

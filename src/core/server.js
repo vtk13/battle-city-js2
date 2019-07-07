@@ -1,12 +1,16 @@
 const EventEmitter = require('events');
 
 class BCSession extends EventEmitter {
-    constructor(server){
+    constructor(id, server){
         super();
+        this.id = id;
         this.server = server;
     }
     subscribe(sectorIds){
         this.server.subscribe(sectorIds, this);
+    }
+    unsubscribe(sectorIds){
+        this.server.unsubscribe(sectorIds, this);
     }
     step(stepId, sectorId, hash, userActions){
         this.server.step(stepId, sectorId, hash, userActions);
@@ -34,7 +38,8 @@ class BCServer extends EventEmitter {
         this.sessions = {};
     }
     createSession(){
-        return this.sessions[this.nextSessionId++] = new BCSession(this);
+        let id = ++this.nextSessionId;
+        return this.sessions[id] = new BCSession(id, this);
     }
     subscribe(sectorIds, session){
         for (let sectorId of sectorIds){
@@ -47,11 +52,17 @@ class BCServer extends EventEmitter {
             sector.sessions[session.id] = session;
         }
     }
-    step(stepId, sectorId, hash, userActions){
-        for (let sessionId in this.sessions){
+    unsubscribe(sectorIds, session){
+        for (let sectorId of sectorIds){
             let sector = this.sectors[sectorId];
-            sector.stepId = Math.max(sector.stepId, stepId);
-            let session = this.sessions[sessionId];
+            delete sector.sessions[session.id];
+        }
+    }
+    step(stepId, sectorId, hash, userActions){
+        let sector = this.sectors[sectorId];
+        sector.stepId = Math.max(sector.stepId, stepId);
+        for (let sessionId in sector.sessions){
+            let session = sector.sessions[sessionId];
             session.emit('step', stepId, sectorId, userActions);
         }
     }
