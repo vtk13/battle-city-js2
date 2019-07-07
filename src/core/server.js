@@ -5,6 +5,9 @@ class BCSession extends EventEmitter {
         super();
         this.server = server;
     }
+    subscribe(sectorIds){
+        this.server.subscribe(sectorIds, this);
+    }
     step(stepId, sectorId, hash, userActions){
         this.server.step(stepId, sectorId, hash, userActions);
     }
@@ -18,13 +21,11 @@ class BCServer extends EventEmitter {
         this.sessions = {};
     }
     createSession(){
-        let session = this.sessions[this.nextSessionId] = new BCSession(this);
-        this.nextSessionId++;
-        return session;
+        return this.sessions[this.nextSessionId++] = new BCSession(this);
     }
-    subscribe(sectorIds){
+    subscribe(sectorIds, session){
         for (let sectorId of sectorIds)
-            this.emit('subscribe', sectorId, this.sectors[sectorId]);
+            session.emit('subscribe', sectorId, this.sectors[sectorId]);
     }
     step(stepId, sectorId, hash, userActions){
         for (let sessionId in this.sessions){

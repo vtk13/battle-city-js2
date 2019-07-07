@@ -7,12 +7,13 @@ describe('server', ()=>{
         let server = new BCServer({
             1: [{}, {}],
         });
-        server.on('subscribe', (sectorId, objects)=>{
+        let session = server.createSession();
+        session.on('subscribe', (sectorId, objects)=>{
             assert.equal(sectorId, 1);
             assert.deepEqual(objects, [{}, {}]);
             done();
         });
-        server.subscribe([1]);
+        session.subscribe([1]);
     });
     // second player receives events from first player
     it('sync 2 clients', done=>{
