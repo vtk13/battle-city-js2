@@ -16,11 +16,20 @@ module.exports = {
       {
         test: /\.jsx?$/,
         exclude: /node_modules/,
-        use: {loader: "babel-loader"}
+        use: {loader: 'babel-loader'}
       },
       {
         test: /\.css$/,
         use: ['style-loader', 'css-loader']
+      },
+      {
+        test: /\.(png|svg|jpe?g|gif|)$/,
+        use: ['file-loader']
+      },
+      {
+        test: /\.(ttf|eot|woff|woff2)$/,
+        loader: 'file-loader',
+        options: {name: 'fonts/[name].[ext]'}
       }
     ]
   },
