@@ -1,4 +1,5 @@
 const _ = require('lodash');
+const EventEmitter = require('events');
 
 function objectId(object){
     if (!object)
@@ -9,15 +10,9 @@ function objectId(object){
 }
 objectId.n = 1;
 
-/*
-client:
-- manages connections to server
-- keeps sectors in sync
-- able to send command to server
- */
-
-class BCClient {
+class BCClient extends EventEmitter {
     constructor(session){
+        super();
         this.session = session;
         session.on('step', this.onStep.bind(this));
         this.sectors = {};
@@ -40,6 +35,7 @@ class BCClient {
         if (!this.sectors[sectorId])
             throw new Error('invalid sectorId');
         this.sectors[sectorId].onStep(stepId, userActions);
+        this.emit('step');
     }
 }
 

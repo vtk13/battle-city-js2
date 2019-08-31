@@ -3,6 +3,17 @@ body, html {
   overflow: hidden;
 }
 
+canvas {
+  width: 400px;
+  height: 400px;
+  float: left;
+  border: solid 1px #aaa;
+  margin: 10px;
+}
+form {
+  margin: 10px;
+}
+
 .bg-img {
   background-image: url('../img/tank.jpg');
   height: 100vh;

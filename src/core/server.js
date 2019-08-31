@@ -15,8 +15,6 @@ class BCSession extends EventEmitter {
         this.server = server;
     }
     /**
-     * TODO: add objectsStepId to onSubscribed callback
-     *
      * @param sectorIds
      * @param onSubscribed function(sectorId, stepId, objects)
      */
