@@ -2,9 +2,9 @@ const EventEmitter = require('events');
 
 /**
  * emits:
- * - getSector(sectorId) - server wants to get actual data for the sector
+ * - getSector(sectorId) - server wants to get actual objects for the sector
  *   and you should send it back by calling setSector
- * - subscribe(sectorId, data) - just subscribed for a sector
+ * - subscribe(sectorId, objects) - just subscribed for a sector
  * - step(stepId, sectorId, userActions) - another step is ready to be processed
  * - error
  */
@@ -15,10 +15,10 @@ class BCSession extends EventEmitter {
         this.server = server;
     }
     /**
-     * TODO: add dataStepId to onSubscribed callback
+     * TODO: add objectsStepId to onSubscribed callback
      *
      * @param sectorIds
-     * @param onSubscribed function(sectorId, data)
+     * @param onSubscribed function(sectorId, objects)
      */
     subscribe(sectorIds, onSubscribed){
         this.server.subscribe(sectorIds, onSubscribed, this);
@@ -29,40 +29,46 @@ class BCSession extends EventEmitter {
     step(stepId, sectorId, hash, userActions){
         this.server.step(stepId, sectorId, hash, userActions, this);
     }
-    setSector(sectorId, dataStepId, data){
-        this.server.setSector(sectorId, dataStepId, data);
+    setSector(sectorId, objectsStepId, objects){
+        this.server.setSector(sectorId, objectsStepId, objects);
     }
 }
 
 class BCServerSector {
-    constructor(stepId, data){
+    constructor(sectorId, stepId, objects){
+        this.sectorId = sectorId;
         this.stepId = stepId;
-        // stepId of data snapshot, data is not synced every step
-        this.dataStepId = stepId;
-        this.data = data;
+        // stepId of objects snapshot, objects is not synced every step
+        this.objectsStepId = stepId;
+        this.objects = objects;
         this.sessions = {};
         this.awaitingCallbacks = [];
         this.lastSteps = {};
     }
-    addHash(session, stepId, hash){
-        let ls = this.lastSteps[stepId] = this.lastSteps[stepId] || {n: 0, hashes: {}};
+    // todo test new connection then step for previous connection
+    //      ls.n will never be equal to sessions.length
+    step(session, stepId, hash, userActions){
+        let ls = this.lastSteps[stepId] = this.lastSteps[stepId] || {n: 0, hashes: {}, userActions: []};
         ls.hashes[hash] = ls.hashes[hash] || [];
         ls.hashes[hash].push(session);
+        ls.userActions.push(...userActions);
         ls.n++;
         // TODO: optimize Object.keys
         if (ls.n < Object.keys(this.sessions).length)
             return;
         let hashes = Object.entries(ls.hashes).sort((a, b)=>b[1].length-a[1].length);
-        if (hashes.length<=1)
-            return;
-        if (hashes[0][1].length===hashes[1][1].length){
-            for (let sessionId in this.sessions)
-                this.sessions[sessionId].emit('error');
-        } else {
-            for (let i=1; i<hashes.length; i++)
-                for (let session of hashes[i][1])
-                    session.emit('error');
+        if (hashes.length>1){
+            if (hashes[0][1].length===hashes[1][1].length){
+                for (let sessionId in this.sessions)
+                    this.sessions[sessionId].emit('error');
+            } else {
+                for (let i=1; i<hashes.length; i++)
+                    for (let session of hashes[i][1])
+                        session.emit('error');
+            }
         }
+        for (let session of hashes[0][1])
+            session.emit('step', stepId, this.sectorId, ls.userActions);
     }
 }
 
@@ -81,11 +87,12 @@ class BCServer extends EventEmitter {
         for (let sectorId of sectorIds){
             let sector = this.sectors[sectorId];
             if (onSubscribed){
-                if (sector.stepId>sector.dataStepId){
+                if (sector.stepId>sector.objectsStepId){
                     Object.values(sector.sessions)[0].emit('getSector', sectorId);
+                    // todo save callbacks per sectorId
                     sector.awaitingCallbacks.push(onSubscribed);
                 } else
-                    onSubscribed(sectorId, sector.data);
+                    onSubscribed(sectorId, sector.objects);
             }
             sector.sessions[session.id] = session;
         }
@@ -100,19 +107,15 @@ class BCServer extends EventEmitter {
     step(stepId, sectorId, hash, userActions, session){
         let sector = this.sectors[sectorId];
         sector.stepId = Math.max(sector.stepId, stepId);
-        sector.addHash(session, stepId, hash);
-        for (let sessionId in sector.sessions){
-            let session = sector.sessions[sessionId];
-            session.emit('step', stepId, sectorId, userActions);
-        }
+        sector.step(session, stepId, hash, userActions);
     }
-    setSector(sectorId, dataStepId, data){
+    setSector(sectorId, objectsStepId, objects){
         let sector = this.sectors[sectorId];
-        sector.dataStepId = dataStepId;
-        sector.data = data;
+        sector.objectsStepId = objectsStepId;
+        sector.objects = objects;
         let onSubscribed;
         while ((onSubscribed = sector.awaitingCallbacks.pop()))
-            onSubscribed(sectorId, sector.data);
+            onSubscribed(sectorId, sector.objects);
     }
 }
 

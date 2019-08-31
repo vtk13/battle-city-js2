@@ -5,7 +5,7 @@ describe('server', ()=>{
     let server;
     beforeEach(()=>{
         server = new BCServer({
-            1: new BCServerSector(0, [{}, {}]),
+            1: new BCServerSector(1, 0, [{}, {}]),
         });
     });
     it('player connects to the server and gets sector objects', done=>{
@@ -16,17 +16,20 @@ describe('server', ()=>{
             done();
         });
     });
-    it('second player receives events from first player', done=>{
+    // todo send actions to other sectors
+    it('step is emitted once all player sent actions', done=>{
         let session1 = server.createSession();
         let session2 = server.createSession();
         session2.on('step', (stepId, sectorId, userActions)=>{
             assert.strictEqual(stepId, 234);
             assert.strictEqual(sectorId, 1);
-            assert.deepStrictEqual(userActions, [{key: 'w'}]);
+            assert.deepStrictEqual(userActions, [{key: 'w'}, {key: 'a'}]);
             done();
         });
+        session1.subscribe([1]);
         session2.subscribe([1]);
         session1.step(234, 1, 'A', [{key: 'w'}]);
+        session2.step(234, 1, 'A', [{key: 'a'}]);
     });
     it('players receive the same step events for each player', done=>{
         let session1 = server.createSession();
@@ -40,7 +43,7 @@ describe('server', ()=>{
         session1.step(234, 1, 'A', [{key: 'w'}]);
         session2.step(234, 1, 'A', [{key: 's'}]);
     });
-    it('player receives actual data on connect', ()=>{
+    it('player receives actual objects on connect', ()=>{
         let session1 = server.createSession();
         session1.on('getSector', sectorId=>{
             session1.setSector(sectorId, 234, [{}, {}, {}]);
@@ -63,10 +66,10 @@ describe('server', ()=>{
         session2.on('step', ()=>{
             called++;
         });
-        session1.step(234, 1, 'A', [{key: 'w'}]);
-
+        session1.step(234, 1, 'A', []);
+        session2.step(234, 1, 'A', []);
         session2.unsubscribe([1]);
-        session1.step(235, 1, 'A', [{key: 'w'}]);
+        session1.step(235, 1, 'A', []);
         assert.strictEqual(called, 1);
     });
     it('kick all users on wrong hash', done=>{
