@@ -10,13 +10,11 @@ describe('server', ()=>{
     });
     it('player connects to the server and gets sector objects', done=>{
         let session = server.createSession();
-        // TODO: add dataStepId
-        session.on('subscribe', (sectorId, objects)=>{
+        session.subscribe([1], (sectorId, objects)=>{
             assert.strictEqual(sectorId, 1);
             assert.deepStrictEqual(objects, [{}, {}]);
             done();
         });
-        session.subscribe([1]);
     });
     it('second player receives events from first player', done=>{
         let session1 = server.createSession();
@@ -51,11 +49,10 @@ describe('server', ()=>{
         session1.step(234, 1, 'A', [{key: 'w'}]);
 
         let session2 = server.createSession();
-        session2.on('subscribe', (sectorId, objects)=>{
+        session2.subscribe([1], (sectorId, objects)=>{
             assert.deepStrictEqual(objects, [{}, {}, {}]);
             done();
         });
-        session2.subscribe([1]);
     });
     it('player is unsubscribed', ()=>{
         let session1 = server.createSession();
