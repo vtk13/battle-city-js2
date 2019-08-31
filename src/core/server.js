@@ -20,7 +20,7 @@ class BCSession extends EventEmitter {
     }
 }
 
-class BCSector {
+class BCServerSector {
     constructor(stepId, data){
         this.stepId = stepId;
         this.dataStepId = stepId;
@@ -40,7 +40,7 @@ class BCSector {
         let hashes = Object.entries(ls.hashes).sort((a, b)=>b[1].length-a[1].length);
         if (hashes.length<=1)
             return;
-        if (hashes[0][1].length==hashes[1][1].length){
+        if (hashes[0][1].length===hashes[1][1].length){
             for (let sessionId in this.sessions)
                 this.sessions[sessionId].emit('error');
         } else {
@@ -99,4 +99,4 @@ class BCServer extends EventEmitter {
     }
 }
 
-module.exports = {BCServer, BCSector};
+module.exports = {BCServer, BCServerSector};

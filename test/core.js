@@ -1,44 +1,41 @@
 const assert = require('assert');
-const {BCServer, BCSector} = require('../src/core/server');
+const {BCServer, BCServerSector} = require('../src/core/server');
 
 describe('server', ()=>{
-    it('player connects to the server and gets sector objects', done=>{
-        let server = new BCServer({
-            1: new BCSector(0, [{}, {}]),
+    let server;
+    beforeEach(()=>{
+        server = new BCServer({
+            1: new BCServerSector(0, [{}, {}]),
         });
+    });
+    it('player connects to the server and gets sector objects', done=>{
         let session = server.createSession();
         // TODO: add dataStepId
         session.on('subscribe', (sectorId, objects)=>{
-            assert.equal(sectorId, 1);
-            assert.deepEqual(objects, [{}, {}]);
+            assert.strictEqual(sectorId, 1);
+            assert.deepStrictEqual(objects, [{}, {}]);
             done();
         });
         session.subscribe([1]);
     });
     it('second player receives events from first player', done=>{
-        let server = new BCServer({
-            1: new BCSector(0, [{}, {}]),
-        });
         let session1 = server.createSession();
         let session2 = server.createSession();
         session2.on('step', (stepId, sectorId, userActions)=>{
-            assert.equal(stepId, 234);
-            assert.equal(sectorId, 1);
-            assert.deepEqual(userActions, [{key: 'w'}]);
+            assert.strictEqual(stepId, 234);
+            assert.strictEqual(sectorId, 1);
+            assert.deepStrictEqual(userActions, [{key: 'w'}]);
             done();
         });
         session2.subscribe([1]);
         session1.step(234, 1, 'A', [{key: 'w'}]);
     });
     it('players receive the same step events for each player', done=>{
-        let server = new BCServer({
-            1: new BCSector(0, [{}, {}]),
-        });
         let session1 = server.createSession();
         let session2 = server.createSession();
         let n = 0;
         session1.on('step', ()=>{
-            if (++n==2)
+            if (++n===2)
                 done();
         });
         session1.subscribe([1]);
@@ -46,9 +43,6 @@ describe('server', ()=>{
         session2.step(234, 1, 'A', [{key: 's'}]);
     });
     it('player receives actual data on connect', ()=>{
-        let server = new BCServer({
-            1: new BCSector(0, [{}, {}]),
-        });
         let session1 = server.createSession();
         session1.on('getSector', sectorId=>{
             session1.setSector(sectorId, 234, [{}, {}, {}]);
@@ -58,15 +52,12 @@ describe('server', ()=>{
 
         let session2 = server.createSession();
         session2.on('subscribe', (sectorId, objects)=>{
-            assert.deepEqual(objects, [{}, {}, {}]);
+            assert.deepStrictEqual(objects, [{}, {}, {}]);
             done();
         });
         session2.subscribe([1]);
     });
     it('player is unsubscribed', ()=>{
-        let server = new BCServer({
-            1: new BCSector(0, [{}, {}]),
-        });
         let session1 = server.createSession();
         session1.subscribe([1]);
         let session2 = server.createSession();
@@ -79,16 +70,13 @@ describe('server', ()=>{
 
         session2.unsubscribe([1]);
         session1.step(235, 1, 'A', [{key: 'w'}]);
-        assert.equal(called, 1);
+        assert.strictEqual(called, 1);
     });
     it('kick all users on wrong hash', done=>{
-        let server = new BCServer({
-            1: new BCSector(0, [{}, {}]),
-        });
         let n = 0;
         let onError = ()=>{
             n++;
-            if (n==2)
+            if (n===2)
                 done();
         };
         let session1 = server.createSession();
@@ -101,9 +89,6 @@ describe('server', ()=>{
         session2.step(234, 1, 'B', []);
     });
     it('kick user on wrong hash', done=>{
-        let server = new BCServer({
-            1: new BCSector(0, [{}, {}]),
-        });
         let session1 = server.createSession();
         session1.subscribe([1]);
         session1.on('error', ()=>assert(false));
