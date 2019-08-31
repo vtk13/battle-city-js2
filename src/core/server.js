@@ -5,7 +5,7 @@ const EventEmitter = require('events');
  * - getSector(sectorId) - server wants to get actual objects for the sector
  *   and you should send it back by calling setSector
  * - subscribe(sectorId, objects) - just subscribed for a sector
- * - step(stepId, sectorId, userActions) - another step is ready to be processed
+ * - step(sectorId, stepId, userActions) - another step is ready to be processed
  * - error
  */
 class BCSession extends EventEmitter {
@@ -18,16 +18,19 @@ class BCSession extends EventEmitter {
      * TODO: add objectsStepId to onSubscribed callback
      *
      * @param sectorIds
-     * @param onSubscribed function(sectorId, objects)
+     * @param onSubscribed function(sectorId, stepId, objects)
      */
     subscribe(sectorIds, onSubscribed){
-        this.server.subscribe(sectorIds, onSubscribed, this);
+        this.server.subscribe(sectorIds, (sectorId, stepId, objects)=>{
+            objects = JSON.parse(JSON.stringify(objects));
+            onSubscribed && onSubscribed(sectorId, stepId, objects);
+        }, this);
     }
     unsubscribe(sectorIds){
         this.server.unsubscribe(sectorIds, this);
     }
-    step(stepId, sectorId, hash, userActions){
-        this.server.step(stepId, sectorId, hash, userActions, this);
+    step(sectorId, stepId, hash, userActions){
+        this.server.step(sectorId, stepId, hash, userActions, this);
     }
     setSector(sectorId, objectsStepId, objects){
         this.server.setSector(sectorId, objectsStepId, objects);
@@ -68,7 +71,7 @@ class BCServerSector {
             }
         }
         for (let session of hashes[0][1])
-            session.emit('step', stepId, this.sectorId, ls.userActions);
+            session.emit('step', this.sectorId, stepId, ls.userActions);
     }
 }
 
@@ -92,7 +95,7 @@ class BCServer extends EventEmitter {
                     // todo save callbacks per sectorId
                     sector.awaitingCallbacks.push(onSubscribed);
                 } else
-                    onSubscribed(sectorId, sector.objects);
+                    onSubscribed(sectorId, sector.stepId, sector.objects);
             }
             sector.sessions[session.id] = session;
         }
@@ -104,7 +107,7 @@ class BCServer extends EventEmitter {
         }
     }
     // TODO: session is circular dependency
-    step(stepId, sectorId, hash, userActions, session){
+    step(sectorId, stepId, hash, userActions, session){
         let sector = this.sectors[sectorId];
         sector.stepId = Math.max(sector.stepId, stepId);
         sector.step(session, stepId, hash, userActions);
@@ -115,7 +118,7 @@ class BCServer extends EventEmitter {
         sector.objects = objects;
         let onSubscribed;
         while ((onSubscribed = sector.awaitingCallbacks.pop()))
-            onSubscribed(sectorId, sector.objects);
+            onSubscribed(sectorId, objectsStepId, sector.objects);
     }
 }
 
