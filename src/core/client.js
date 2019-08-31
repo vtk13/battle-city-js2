@@ -13,9 +13,13 @@ objectId.n = 1;
 class BCClient extends EventEmitter {
     constructor(session){
         super();
+        this.sectors = {};
         this.session = session;
         session.on('step', this.onStep.bind(this));
-        this.sectors = {};
+        session.on('getSector', sectorId=>{
+            let {stepId, objects} = this.sectors[sectorId];
+            session.setSector(sectorId, stepId, objects);
+        });
     }
     subscribe(sectorIds){
         this.session.subscribe(sectorIds, (sectorId, stepId, object)=>{
@@ -54,6 +58,7 @@ class BCClientSector {
     onStep(stepId, userActions){
         if (this.stepId!==stepId)
             throw new Error('mismatch stepId');
+        this.stepId++;
         // game logic stub
         if (_.get(userActions, [0, 'key'])==='w')
             this.objects[0].y += 10;

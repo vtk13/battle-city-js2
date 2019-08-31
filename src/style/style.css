@@ -3,12 +3,18 @@ body, html {
   overflow: hidden;
 }
 
-canvas {
-  width: 400px;
-  height: 400px;
+canvas, .canvas {
+  width: 300px;
+  height: 300px;
   float: left;
   border: solid 1px #aaa;
   margin: 10px;
+  text-align: center;
+  line-height: 300px;
+  font-size: 30px;
+}
+.canvas {
+  cursor: pointer;
 }
 form {
   margin: 10px;

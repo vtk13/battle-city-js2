@@ -70,6 +70,7 @@ class BCServerSector {
         }
         for (let session of hashes[0][1])
             session.emit('step', this.sectorId, stepId, ls.userActions);
+        this.stepId++;
     }
 }
 
@@ -89,9 +90,9 @@ class BCServer extends EventEmitter {
             let sector = this.sectors[sectorId];
             if (onSubscribed){
                 if (sector.stepId>sector.objectsStepId){
-                    Object.values(sector.sessions)[0].emit('getSector', sectorId);
                     // todo save callbacks per sectorId
                     sector.awaitingCallbacks.push(onSubscribed);
+                    Object.values(sector.sessions)[0].emit('getSector', sectorId);
                 } else
                     onSubscribed(sectorId, sector.stepId, sector.objects);
             }

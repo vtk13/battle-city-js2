@@ -6,14 +6,14 @@ describe('server', ()=>{
     let server;
     beforeEach(()=>{
         server = new BCServer({
-            1: new BCServerSector(1, 0, [{}, {}]),
+            1: new BCServerSector(1, 234, [{}, {}]),
         });
     });
     it('player connects to the server and gets sector objects', done=>{
         let session = server.createSession();
         session.subscribe([1], (sectorId, stepId, objects)=>{
             assert.strictEqual(sectorId, 1);
-            assert.strictEqual(stepId, 0);
+            assert.strictEqual(stepId, 234);
             assert.deepStrictEqual(objects, [{}, {}]);
             done();
         });
@@ -45,16 +45,17 @@ describe('server', ()=>{
         session1.step(1, 234, 'A', [{key: 'w'}]);
         session2.step(1, 234, 'A', [{key: 's'}]);
     });
-    it('player receives actual objects on connect', ()=>{
+    it('player receives actual objects on connect', done=>{
         let session1 = server.createSession();
         session1.on('getSector', sectorId=>{
-            session1.setSector(sectorId, 234, [{}, {}, {}]);
+            session1.setSector(sectorId, 235, [{}, {}, {}]);
         });
         session1.subscribe([1]);
         session1.step(1, 234, 'A', [{key: 'w'}]);
 
         let session2 = server.createSession();
         session2.subscribe([1], (sectorId, stepId, objects)=>{
+            assert.strictEqual(stepId, 235);
             assert.deepStrictEqual(objects, [{}, {}, {}]);
             done();
         });
@@ -123,6 +124,15 @@ describe('client', ()=>{
         client1.completeStep();
         client2.completeStep();
         assert.deepStrictEqual(client1.sectors[1].objects[0], {id: 'tank', x: 0, y: 10});
+        assert.deepStrictEqual(client2.sectors[1].objects[0], {id: 'tank', x: 0, y: 10});
+    });
+    it('client gets actual state from another client', ()=>{
+        let client1 = new BCClient(server.createSession());
+        client1.subscribe([1]);
+        client1.action(1, {key: 'w'});
+        client1.completeStep();
+        let client2 = new BCClient(server.createSession());
+        client2.subscribe([1]);
         assert.deepStrictEqual(client2.sectors[1].objects[0], {id: 'tank', x: 0, y: 10});
     });
 });
