@@ -11,10 +11,11 @@ function objectId(object){
 objectId.n = 1;
 
 class BCClient extends EventEmitter {
-    constructor(session){
+    constructor(session, factory){
         super();
         this.sectors = {};
         this.session = session;
+        this.factory = factory;
         session.on('step', this.onStep.bind(this));
         session.on('getSector', sectorId=>{
             let {stepId, objects} = this.sectors[sectorId];
@@ -22,8 +23,9 @@ class BCClient extends EventEmitter {
         });
     }
     subscribe(sectorIds, onSubscribed){
-        this.session.subscribe(sectorIds, (sectorId, stepId, object)=>{
-            this.sectors[sectorId] = new BCClientSector(sectorId, stepId, object);
+        this.session.subscribe(sectorIds, (sectorId, stepId, objects)=>{
+            objects = objects.map(object=>this.factory.deserialize(object));
+            this.sectors[sectorId] = new BCClientSector(sectorId, stepId, objects);
             onSubscribed && onSubscribed(sectorId);
         });
     }
@@ -63,7 +65,13 @@ class BCClientSector {
         for (let action of userActions){
             switch (action.key){
             case 'w':
-                this.objects[0].y += 10;
+            case 'a':
+            case 's':
+            case 'd':
+                this.objects[0].moving = action.key;
+                break;
+            case 'stop':
+                this.objects[0].moving = null;
                 break;
             case 't':
                 this.objects.push({id: 'tank', x: action.x, y: action.y});
@@ -72,7 +80,27 @@ class BCClientSector {
                 console.log(action);
             }
         }
+        for (let object of this.objects)
+        {
+            if (object.step)
+                object.step();
+        }
     }
 }
 
-module.exports = {BCClient};
+class BCObjectFactory {
+    constructor(){
+        this.classes = {};
+    }
+    register(className, constructor){
+        this.classes[className] = constructor;
+    }
+    deserialize(object){
+        let constructor = this.classes[object.className];
+        let res = Object.create(constructor.prototype);
+        Object.assign(res, object);
+        return res;
+    }
+}
+
+module.exports = {BCClient, BCObjectFactory};

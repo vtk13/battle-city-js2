@@ -19,6 +19,20 @@ canvas, .canvas {
 .canvas {
   cursor: pointer;
 }
+table.controls {
+  table-layout: fixed;
+}
+table.controls td {
+  width: 30px;
+  height: 30px;
+}
+table.controls td.wide {
+  width: 100px;
+}
+table.controls td button {
+  width: 100%;
+  height: 30px;
+}
 
 .bg-img {
   background-image: url('../img/tank.jpg');

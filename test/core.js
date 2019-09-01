@@ -1,6 +1,8 @@
 const assert = require('assert');
+const sinon = require('sinon');
 const {BCServer, BCServerSector} = require('../src/core/server');
-const {BCClient} = require('../src/core/client');
+const {BCClient, BCObjectFactory} = require('../src/core/client');
+const {Tank} = require('../src/battle-city/tank');
 
 describe('server', ()=>{
     let server;
@@ -108,31 +110,34 @@ describe('server', ()=>{
 });
 
 describe('client', ()=>{
-    let server;
+    let server, factory;
     beforeEach(()=>{
+        factory = new BCObjectFactory();
+        factory.register('tank', Tank);
         server = new BCServer({
-            1: new BCServerSector(1, 0, [{id: 'tank', x: 0, y: 0}]),
+            1: new BCServerSector(1, 0, [factory.deserialize({className: 'tank', x: 0, y: 0})]),
         });
     });
     it('simple', ()=>{
-        let client1 = new BCClient(server.createSession());
+        let client1 = new BCClient(server.createSession(), factory);
         client1.subscribe([1]);
-        let client2 = new BCClient(server.createSession());
+        let client2 = new BCClient(server.createSession(), factory);
         client2.subscribe([1]);
-        assert.deepStrictEqual(client1.sectors[1].objects[0], {id: 'tank', x: 0, y: 0});
+        sinon.assert.match(client1.sectors[1].objects[0], sinon.match({className: 'tank', x: 0, y: 0}));
+        assert.deepStrictEqual();
         client1.action(1, {key: 'w'});
         client1.completeStep();
         client2.completeStep();
-        assert.deepStrictEqual(client1.sectors[1].objects[0], {id: 'tank', x: 0, y: 10});
-        assert.deepStrictEqual(client2.sectors[1].objects[0], {id: 'tank', x: 0, y: 10});
+        sinon.assert.match(client1.sectors[1].objects[0], sinon.match({className: 'tank', x: 0, y: 10}));
+        sinon.assert.match(client2.sectors[1].objects[0], sinon.match({className: 'tank', x: 0, y: 10}));
     });
     it('client gets actual state from another client', ()=>{
-        let client1 = new BCClient(server.createSession());
+        let client1 = new BCClient(server.createSession(), factory);
         client1.subscribe([1]);
         client1.action(1, {key: 'w'});
         client1.completeStep();
-        let client2 = new BCClient(server.createSession());
+        let client2 = new BCClient(server.createSession(), factory);
         client2.subscribe([1]);
-        assert.deepStrictEqual(client2.sectors[1].objects[0], {id: 'tank', x: 0, y: 10});
+        sinon.assert.match(client2.sectors[1].objects[0], sinon.match({className: 'tank', x: 0, y: 10}));
     });
 });
