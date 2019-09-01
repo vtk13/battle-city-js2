@@ -20,8 +20,10 @@ class GameView extends React.Component {
         for (let object of this.client.sectors[1].objects)
             c2d.drawImage(this.props.img, 150+object.x, 150-object.y);
     }
-    action(){
-        this.client.action(1, {key: 'w'});
+    newTank(){
+        this.client.action(1, {key: 't',
+            x: (Math.random()*200>>0)-100,
+            y: (Math.random()*200>>0)-100});
     }
     render(){
         let {id} = this.props;
@@ -29,7 +31,8 @@ class GameView extends React.Component {
             <canvas id={'client'+id} width="300" height="300"/>
             <form>
                 <button type="button" onClick={()=>this.client.completeStep()}>step</button>
-                <button type="button" onClick={()=>this.action()}>w</button>
+                <button type="button" onClick={()=>this.client.action(1, {key: 'w'})}>w</button>
+                <button type="button" onClick={()=>this.newTank()}>t</button>
             </form>
         </div>;
     }

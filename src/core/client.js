@@ -60,9 +60,18 @@ class BCClientSector {
         if (this.stepId!==stepId)
             throw new Error('mismatch stepId');
         this.stepId++;
-        // game logic stub
-        if (_.get(userActions, [0, 'key'])==='w')
-            this.objects[0].y += 10;
+        for (let action of userActions){
+            switch (action.key){
+            case 'w':
+                this.objects[0].y += 10;
+                break;
+            case 't':
+                this.objects.push({id: 'tank', x: action.x, y: action.y});
+                break;
+            default:
+                console.log(action);
+            }
+        }
     }
 }
 
