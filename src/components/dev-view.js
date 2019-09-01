@@ -8,7 +8,7 @@ let factory = new BCObjectFactory();
 factory.register('tank', Tank);
 
 let server = new BCServer({
-    1: new BCServerSector(1, 0, [factory.deserialize({className: 'tank', x: 0, y: 0})]),
+    1: new BCServerSector(1, 0, [factory.makeObject({className: 'tank', x: 0, y: 0})]),
 });
 
 class GameView extends React.Component {
@@ -19,7 +19,11 @@ class GameView extends React.Component {
     componentDidMount(){
         this.client = new BCClient(server.createSession(), factory);
         this.client.subscribe([1], ()=>this.draw());
-        this.client.on('step', ()=>this.draw());
+        this.client.on('step', ()=>{
+            this.draw();
+            if (this.props.autoStep)
+                setTimeout(()=>this.client.completeStep(), 1000);
+        });
     }
     draw(){
         let c2d = document.getElementById('client'+this.props.id).getContext('2d');
@@ -77,7 +81,7 @@ class GameView extends React.Component {
                 <tr>
                     <td className="wide"></td>
                     <td></td>
-                    <td><button type="button" onClick={()=>this.client.action(1, {key: 'd'})}>🡇</button></td>
+                    <td><button type="button" onClick={()=>this.client.action(1, {key: 's'})}>🡇</button></td>
                     <td></td>
                     <td></td>
                     <td><button type="button" onClick={()=>this.camOffset(0, -10)}>🡇</button></td>
@@ -103,12 +107,21 @@ export default class DevView extends React.Component {
     add(){
         this.setState(state=>({...state, clients: [...state.clients, state.clients.length]}));
     }
+    setAutoStep(e){
+        this.setState({autoStep: e.target.checked});
+    }
     render(){
         return <div className="row">
             <div className="col-sm-12">
-                {this.state.clients.map(id=><GameView key={id} id={id} img={this.img}/>)}
+                {this.state.clients.map(id=>
+                    <GameView key={id} id={id} img={this.img} autoStep={this.state.autoStep}/>)}
                 <div className="canvas-wrap">
                     <div className="canvas" onClick={()=>this.add()}>+</div>
+                    <div>
+                        <label>
+                            <input type="checkbox" onChange={e=>this.setAutoStep(e)}/> auto step
+                        </label>
+                    </div>
                 </div>
             </div>
         </div>;

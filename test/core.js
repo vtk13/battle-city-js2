@@ -115,7 +115,7 @@ describe('client', ()=>{
         factory = new BCObjectFactory();
         factory.register('tank', Tank);
         server = new BCServer({
-            1: new BCServerSector(1, 0, [factory.deserialize({className: 'tank', x: 0, y: 0})]),
+            1: new BCServerSector(1, 0, [factory.makeObject({className: 'tank', x: 0, y: 0})]),
         });
     });
     it('simple', ()=>{

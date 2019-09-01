@@ -24,8 +24,8 @@ class BCClient extends EventEmitter {
     }
     subscribe(sectorIds, onSubscribed){
         this.session.subscribe(sectorIds, (sectorId, stepId, objects)=>{
-            objects = objects.map(object=>this.factory.deserialize(object));
-            this.sectors[sectorId] = new BCClientSector(sectorId, stepId, objects);
+            objects = objects.map(object=>this.factory.makeObject(object));
+            this.sectors[sectorId] = new BCClientSector(sectorId, stepId, objects, this.factory);
             onSubscribed && onSubscribed(sectorId);
         });
     }
@@ -47,10 +47,11 @@ class BCClient extends EventEmitter {
 }
 
 class BCClientSector {
-    constructor(sectorId, stepId, objects){
+    constructor(sectorId, stepId, objects, factory){
         this.sectorId = sectorId;
         this.stepId = stepId;
         this.objects = objects;
+        this.factory = factory;
         this.userActions = [];
     }
     completeStep(){
@@ -74,7 +75,7 @@ class BCClientSector {
                 this.objects[0].moving = null;
                 break;
             case 't':
-                this.objects.push({id: 'tank', x: action.x, y: action.y});
+                this.objects.push(this.factory.makeObject({className: 'tank', x: action.x, y: action.y}));
                 break;
             default:
                 console.log(action);
@@ -95,7 +96,7 @@ class BCObjectFactory {
     register(className, constructor){
         this.classes[className] = constructor;
     }
-    deserialize(object){
+    makeObject(object){
         let constructor = this.classes[object.className];
         let res = Object.create(constructor.prototype);
         Object.assign(res, object);

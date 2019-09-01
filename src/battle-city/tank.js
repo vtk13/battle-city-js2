@@ -1,5 +1,6 @@
 
 class Tank {
+    // todo: constructor is not called so far
     constructor(id, x, y){
         this.id = id;
         this.x = x;
