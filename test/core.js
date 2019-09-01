@@ -27,7 +27,8 @@ describe('server', ()=>{
         session2.on('step', (sectorId, stepId, userActions)=>{
             assert.strictEqual(sectorId, 1);
             assert.strictEqual(stepId, 234);
-            assert.deepStrictEqual(userActions, [{key: 'w'}, {key: 'a'}]);
+            assert.deepStrictEqual(userActions,
+                [{key: 'w', sessionId: 1}, {key: 'a', sessionId: 2}]);
             done();
         });
         session1.subscribe([1]);
@@ -114,8 +115,9 @@ describe('client', ()=>{
     beforeEach(()=>{
         factory = new BCObjectFactory();
         factory.register('tank', Tank);
+        let tank = factory.makeObject({className: 'tank', sessionId: 1, x: 0, y: 0});
         server = new BCServer({
-            1: new BCServerSector(1, 0, [factory.makeObject({className: 'tank', x: 0, y: 0})]),
+            1: new BCServerSector(1, 0, [tank]),
         });
     });
     it('simple', ()=>{
@@ -123,13 +125,16 @@ describe('client', ()=>{
         client1.subscribe([1]);
         let client2 = new BCClient(server.createSession(), factory);
         client2.subscribe([1]);
-        sinon.assert.match(client1.sectors[1].objects[0], sinon.match({className: 'tank', x: 0, y: 0}));
+        sinon.assert.match(client1.sectors[1].objects[0],
+            sinon.match({className: 'tank', x: 0, y: 0}));
         assert.deepStrictEqual();
         client1.action(1, {key: 'w'});
         client1.completeStep();
         client2.completeStep();
-        sinon.assert.match(client1.sectors[1].objects[0], sinon.match({className: 'tank', x: 0, y: 10}));
-        sinon.assert.match(client2.sectors[1].objects[0], sinon.match({className: 'tank', x: 0, y: 10}));
+        sinon.assert.match(client1.sectors[1].objects[0],
+            sinon.match({className: 'tank', x: 0, y: 10}));
+        sinon.assert.match(client2.sectors[1].objects[0],
+            sinon.match({className: 'tank', x: 0, y: 10}));
     });
     it('client gets actual state from another client', ()=>{
         let client1 = new BCClient(server.createSession(), factory);
@@ -138,6 +143,7 @@ describe('client', ()=>{
         client1.completeStep();
         let client2 = new BCClient(server.createSession(), factory);
         client2.subscribe([1]);
-        sinon.assert.match(client2.sectors[1].objects[0], sinon.match({className: 'tank', x: 0, y: 10}));
+        sinon.assert.match(client2.sectors[1].objects[0],
+            sinon.match({className: 'tank', x: 0, y: 10}));
     });
 });

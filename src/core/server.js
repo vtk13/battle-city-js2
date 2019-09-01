@@ -28,6 +28,10 @@ class BCSession extends EventEmitter {
         this.server.unsubscribe(sectorIds, this);
     }
     step(sectorId, stepId, hash, userActions){
+        userActions = userActions.map(action=>{
+            action.sessionId = this.id;
+            return action;
+        });
         this.server.step(sectorId, stepId, hash, userActions, this);
     }
     setSector(sectorId, objectsStepId, objects){

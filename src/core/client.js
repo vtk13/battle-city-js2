@@ -64,18 +64,27 @@ class BCClientSector {
             throw new Error('mismatch stepId');
         this.stepId++;
         for (let action of userActions){
+            let {sessionId} = action;
+            let target = _.find(this.objects, {sessionId});
             switch (action.key){
             case 'w':
             case 'a':
             case 's':
             case 'd':
-                this.objects[0].moving = action.key;
+                if (target)
+                    target.moving = action.key;
+                else
+                    console.warn('no target');
                 break;
             case 'stop':
-                this.objects[0].moving = null;
+                if (target)
+                    target.moving = null;
+                else
+                    console.warn('no target');
                 break;
             case 't':
-                this.objects.push(this.factory.makeObject({className: 'tank', x: action.x, y: action.y}));
+                this.objects.push(this.factory.makeObject({className: 'tank',
+                    x: action.x, y: action.y, sessionId}));
                 break;
             default:
                 console.log(action);
