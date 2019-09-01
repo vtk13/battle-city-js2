@@ -21,9 +21,10 @@ class BCClient extends EventEmitter {
             session.setSector(sectorId, stepId, objects);
         });
     }
-    subscribe(sectorIds){
+    subscribe(sectorIds, onSubscribed){
         this.session.subscribe(sectorIds, (sectorId, stepId, object)=>{
             this.sectors[sectorId] = new BCClientSector(sectorId, stepId, object);
+            onSubscribed && onSubscribed(sectorId);
         });
     }
     action(sectorId, action){
