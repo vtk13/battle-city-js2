@@ -7,9 +7,18 @@ import img from '../img/tank1-up-s1.png';
 let factory = new BCObjectFactory();
 factory.register('tank', Tank);
 
-let server = new BCServer({
-    1: new BCServerSector(1, 0, [factory.makeObject({className: 'tank', x: 0, y: 0})]),
-});
+class BCDevServer extends BCServer {
+    subscribe(sectorIds, onSubscribed, session) {
+        for (let sectorId of sectorIds)
+            if (!this.sectors[sectorId])
+                this.sectors[sectorId]= new BCServerSector(sectorId, 0, []);
+        super.subscribe(sectorIds, onSubscribed, session);
+    }
+}
+
+let server = new BCDevServer();
+
+let currentSectorId = '0:0';
 
 class GameView extends React.Component {
     constructor(props){
@@ -18,22 +27,32 @@ class GameView extends React.Component {
     }
     componentDidMount(){
         this.client = new BCClient(server.createSession(), factory);
-        this.client.subscribe([1], ()=>this.draw());
-        this.client.on('step', ()=>{
+        this.camOffset(0, 0);
+        this.client.on('step', sectorId=>{
+            console.trace();
             this.draw();
             if (this.props.autoStep)
-                setTimeout(()=>this.client.completeStep(), 1000);
+                setTimeout(()=>this.client.completeStep(sectorId), 1000);
         });
     }
     draw(){
-        let c2d = document.getElementById('client'+this.props.id).getContext('2d');
-        c2d.fillStyle = '#aaa';
+        let canvas = document.getElementById('client'+this.props.id);
+        let c2d = canvas.getContext('2d');
+        c2d.setTransform(1, 0, 0, 1, 0, 0);
+        c2d.clearRect(0, 0, canvas.width, canvas.height);
         c2d.lineWidth = 0.5;
         c2d.strokeStyle = '#555';
-        c2d.fillRect(-100, -100, 500, 500);
-        c2d.setTransform(1, 0, 0, 1, this.state.camX, this.state.camY);
-        for (let object of this.client.sectors[1].objects)
-            c2d.drawImage(this.props.img, 150+object.x, 150-object.y);
+        let scale = 0.4;
+        c2d.setTransform(scale, 0, 0, scale,
+            -this.state.camX*scale+150, -this.state.camY*scale+150);
+        for (let sectorId in this.client.sectors){
+            let sector = this.client.sectors[sectorId];
+            let [sx, sy] = sector.sectorId.split(':').map(Number);
+            sector._bg = sector._bg||('#aa'+(4+Math.random()*8>>0).toString(16));
+            c2d.fillStyle = sector._bg;
+            let w = this.client.sectorWidth;
+            c2d.fillRect(sx*w, sy*w, w, w);
+        }
         for (let i=-5; i<5; i++)
             for (let j=-5; j<5; j++){
                 c2d.beginPath();
@@ -45,14 +64,23 @@ class GameView extends React.Component {
                 c2d.lineTo(i*100-0.5, j*100+4);
                 c2d.stroke();
             }
+        for (let sectorId in this.client.sectors)
+            for (let object of this.client.sectors[sectorId].objects) {
+                c2d.drawImage(this.props.img, object.x, object.y);
+            }
     }
     newTank(){
-        this.client.action(1, {key: 't',
+        this.client.action(currentSectorId, {key: 't',
             x: (Math.random()*200>>0)-100,
             y: (Math.random()*200>>0)-100});
     }
     camOffset(x, y){
-        this.setState(state=>({...state, camX: state.camX+x, camY: state.camY+y}), ()=>this.draw());
+        this.setState(
+            state=>({...state, camX: state.camX+x, camY: state.camY+y}),
+            ()=>{
+                this.client.setCamXY(this.state.camX, this.state.camY);
+                this.draw();
+            });
     }
     render(){
         let {id} = this.props;
@@ -61,30 +89,30 @@ class GameView extends React.Component {
             <table className="controls">
                 <tbody>
                 <tr>
-                    <td className="wide"><button type="button" onClick={()=>this.client.completeStep()}>step</button></td>
+                    <td className="wide"><button type="button" onClick={()=>this.client.completeStepAll()}>step</button></td>
                     <td></td>
-                    <td><button type="button" onClick={()=>this.client.action(1, {key: 'w'})}>🡅</button></td>
+                    <td><button type="button" onClick={()=>this.client.action(currentSectorId, {key: 'w'})}>🡅</button></td>
                     <td></td>
                     <td>cam</td>
-                    <td><button type="button" onClick={()=>this.camOffset(0, 10)}>🡅</button></td>
+                    <td><button type="button" onClick={()=>this.camOffset(0, -10)}>🡅</button></td>
                     <td></td>
                 </tr>
                 <tr>
                     <td className="wide"><button type="button" onClick={()=>this.newTank()}>t</button></td>
-                    <td><button type="button" onClick={()=>this.client.action(1, {key: 'a'})}>🡄</button></td>
-                    <td><button type="button" onClick={()=>this.client.action(1, {key: 'stop'})}>■</button></td>
-                    <td><button type="button" onClick={()=>this.client.action(1, {key: 'd'})}>🡆</button></td>
-                    <td><button type="button" onClick={()=>this.camOffset(10, 0)}>🡄</button></td>
+                    <td><button type="button" onClick={()=>this.client.action(currentSectorId, {key: 'a'})}>🡄</button></td>
+                    <td><button type="button" onClick={()=>this.client.action(currentSectorId, {key: 'stop'})}>■</button></td>
+                    <td><button type="button" onClick={()=>this.client.action(currentSectorId, {key: 'd'})}>🡆</button></td>
+                    <td><button type="button" onClick={()=>this.camOffset(-10, 0)}>🡄</button></td>
                     <td><button type="button" onClick={()=>this.setState({camX: 0, camY: 0}, ()=>this.draw())}>0</button></td>
-                    <td><button type="button" onClick={()=>this.camOffset(-10, 0)}>🡆</button></td>
+                    <td><button type="button" onClick={()=>this.camOffset(10, 0)}>🡆</button></td>
                 </tr>
                 <tr>
                     <td className="wide"></td>
                     <td></td>
-                    <td><button type="button" onClick={()=>this.client.action(1, {key: 's'})}>🡇</button></td>
+                    <td><button type="button" onClick={()=>this.client.action(currentSectorId, {key: 's'})}>🡇</button></td>
                     <td></td>
                     <td></td>
-                    <td><button type="button" onClick={()=>this.camOffset(0, -10)}>🡇</button></td>
+                    <td><button type="button" onClick={()=>this.camOffset(0, 10)}>🡇</button></td>
                     <td></td>
                 </tr>
                 </tbody>

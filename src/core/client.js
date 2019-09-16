@@ -13,6 +13,10 @@ objectId.n = 1;
 class BCClient extends EventEmitter {
     constructor(session, factory){
         super();
+        this.camX = 0;
+        this.camY = 0;
+        this.sectorWidth = 300;
+        this.sectorEdge = 50;
         this.sectors = {};
         this.session = session;
         this.factory = factory;
@@ -22,6 +26,47 @@ class BCClient extends EventEmitter {
             session.setSector(sectorId, stepId, objects);
         });
     }
+    _checkCoord(c, edge){
+        let w = this.sectorWidth;
+        if ((c%w+w)%w<edge)
+            return -1;
+        if (((c+edge)%w+w)%w<edge)
+            return 1;
+        return 0;
+    }
+    setCamXY(x, y){
+        let currentSectors = Object.keys(this.sectors);
+        this.camX = x;
+        this.camY = y;
+        let sx = Math.floor(x/this.sectorWidth), sy = Math.floor(y/this.sectorWidth);
+        let all = [[-1, 1], [0, 1], [1, 1], [-1, 0], [1, 0],
+            [-1, -1], [0, -1], [1, -1]];
+        let subscribeMap = {
+            '-1-1': [[-1, 0], [-1, -1], [0, -1]],
+            '-10': [[-1, 0]],
+            '-11': [[-1, 0], [-1, 1], [0, 1]],
+            '0-1': [[0, -1]],
+            '00': [],
+            '01': [[0, 1]],
+            '1-1': [[1, 0], [1, -1], [0, -1]],
+            '10': [[1, 0]],
+            '11': [[1, 0], [1, 1], [0, 1]],
+        };
+        let subKey = ''+this._checkCoord(x, this.sectorEdge)
+            +this._checkCoord(y, this.sectorEdge);
+        let toSubscribe = [sx+':'+sy].concat(subscribeMap[subKey].map(
+            ([dx, dy])=>(sx+dx)+':'+(sy+dy)));
+        let keepKey = ''+this._checkCoord(x, this.sectorWidth>>1)
+            +this._checkCoord(y, this.sectorWidth>>1);
+        console.log('KK', sx+':'+sy, x, y, subKey, keepKey);
+        let toKeep = _.uniq(toSubscribe.concat(
+            subscribeMap[keepKey].map(([dx, dy])=>(sx+dx)+':'+(sy+dy))));
+        console.log(currentSectors, x, y, //toSubscribe, toKeep,
+            _.difference(toSubscribe, currentSectors),
+            _.difference(currentSectors, toKeep));
+        this.subscribe(_.difference(toSubscribe, currentSectors));
+        this.unsubscribe(_.difference(currentSectors, toKeep));
+    }
     subscribe(sectorIds, onSubscribed){
         this.session.subscribe(sectorIds, (sectorId, stepId, objects)=>{
             objects = objects.map(object=>this.factory.makeObject(object));
@@ -29,20 +74,27 @@ class BCClient extends EventEmitter {
             onSubscribed && onSubscribed(sectorId);
         });
     }
+    unsubscribe(sectorIds){
+        this.session.unsubscribe(sectorIds, sectorId=>{
+            delete this.sectors[sectorId];
+        });
+    }
     action(sectorId, action){
         this.sectors[sectorId].userActions.push(action);
     }
-    completeStep(){
-        for (let sectorId in this.sectors){
-            let sector = this.sectors[sectorId], res = sector.completeStep();
-            this.session.step(sector.sectorId, res.stepId, res.hash, res.userActions);
-        }
+    completeStep(sectorId){
+        let sector = this.sectors[sectorId], res = sector.completeStep();
+        this.session.step(sector.sectorId, res.stepId, res.hash, res.userActions);
+    }
+    completeStepAll(){
+        for (let sectorId in this.sectors)
+            this.completeStep(sectorId);
     }
     onStep(sectorId, stepId, userActions){
         if (!this.sectors[sectorId])
             throw new Error('invalid sectorId');
         this.sectors[sectorId].onStep(stepId, userActions);
-        this.emit('step');
+        this.emit('step', sectorId);
     }
 }
 

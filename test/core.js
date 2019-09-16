@@ -76,6 +76,7 @@ describe('server', ()=>{
         session2.step(1, 234, 'A', []);
         session2.unsubscribe([1]);
         session1.step(1, 235, 'A', []);
+        // todo: ensure step is done
         assert.strictEqual(called, 1);
     });
     it('kick all users on wrong hash', done=>{
@@ -129,8 +130,8 @@ describe('client', ()=>{
             sinon.match({className: 'tank', x: 0, y: 0}));
         assert.deepStrictEqual();
         client1.action(1, {key: 'w'});
-        client1.completeStep();
-        client2.completeStep();
+        client1.completeStep(1);
+        client2.completeStep(1);
         sinon.assert.match(client1.sectors[1].objects[0],
             sinon.match({className: 'tank', x: 0, y: 10}));
         sinon.assert.match(client2.sectors[1].objects[0],
@@ -140,10 +141,25 @@ describe('client', ()=>{
         let client1 = new BCClient(server.createSession(), factory);
         client1.subscribe([1]);
         client1.action(1, {key: 'w'});
-        client1.completeStep();
+        client1.completeStep(1);
         let client2 = new BCClient(server.createSession(), factory);
         client2.subscribe([1]);
         sinon.assert.match(client2.sectors[1].objects[0],
             sinon.match({className: 'tank', x: 0, y: 10}));
+    });
+    describe('loading sectors', ()=>{
+        it('pub sub', ()=>{
+            let client = new BCClient(server.createSession(), factory);
+            sinon.stub(client.session, 'subscribe')
+                .callsFake((sectorIds, onSubscribed)=>{
+                    sectorIds.map(id=>onSubscribed(id, 0, []));
+                });
+            // todo: asserts
+            client.setCamXY(0, 0);
+            console.log(Object.keys(client.sectors));
+            client.setCamXY(300, 300);
+            console.log(Object.keys(client.sectors));
+        });
+
     });
 });

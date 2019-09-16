@@ -5,7 +5,7 @@
   "main": "index.js",
   "scripts": {
     "test": "mocha",
-    "start": "webpack-dev-server --mode development --open --hot",
+    "start": "webpack-dev-server -d --mode development --open --hot",
     "build": "webpack --mode production"
   },
   "keywords": [],

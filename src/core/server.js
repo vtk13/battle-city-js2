@@ -24,8 +24,13 @@ class BCSession extends EventEmitter {
             onSubscribed && onSubscribed(sectorId, stepId, objects);
         }, this);
     }
-    unsubscribe(sectorIds){
-        this.server.unsubscribe(sectorIds, this);
+
+    /**
+     * @param sectorIds
+     * @param onUnsubscribe function(sectorId)
+     */
+    unsubscribe(sectorIds, onUnsubscribe){
+        this.server.unsubscribe(sectorIds, this, onUnsubscribe);
     }
     step(sectorId, stepId, hash, userActions){
         userActions = userActions.map(action=>{
@@ -81,7 +86,7 @@ class BCServerSector {
 class BCServer extends EventEmitter {
     constructor(sectors){
         super();
-        this.sectors = sectors;
+        this.sectors = sectors||{};
         this.nextSessionId = 1;
         this.sessions = {};
     }
@@ -103,10 +108,13 @@ class BCServer extends EventEmitter {
             sector.sessions[session.id] = session;
         }
     }
-    unsubscribe(sectorIds, session){
+    unsubscribe(sectorIds, session, onUnsubscribe){
         for (let sectorId of sectorIds){
             let sector = this.sectors[sectorId];
-            delete sector.sessions[session.id];
+            // todo: no sector case
+            if (sector)
+                delete sector.sessions[session.id];
+            onUnsubscribe && onUnsubscribe(sectorId);
         }
     }
     // TODO: session is circular dependency

@@ -1,0 +1,9 @@
+* add multiply sectors support
+  + display and camera move
+  * steps per sector
+  - tank control
+  - move objects across sectors
+- mechanism to enforce rules across sectors
+  e.g. having only one tank to control
+- add async calls support
+- add network support
