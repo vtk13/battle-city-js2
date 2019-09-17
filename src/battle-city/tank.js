@@ -10,13 +10,13 @@ class Tank {
     step(){
         switch (this.moving){
         case 'w':
-            this.y += 10;
+            this.y -= 10;
             break;
         case 'a':
             this.x -= 10;
             break;
         case 's':
-            this.y -= 10;
+            this.y += 10;
             break;
         case 'd':
             this.x += 10;

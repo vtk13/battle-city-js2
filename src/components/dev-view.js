@@ -29,7 +29,6 @@ class GameView extends React.Component {
         this.client = new BCClient(server.createSession(), factory);
         this.camOffset(0, 0);
         this.client.on('step', sectorId=>{
-            console.trace();
             this.draw();
             if (this.props.autoStep)
                 setTimeout(()=>this.client.completeStep(sectorId), 1000);
@@ -42,7 +41,7 @@ class GameView extends React.Component {
         c2d.clearRect(0, 0, canvas.width, canvas.height);
         c2d.lineWidth = 0.5;
         c2d.strokeStyle = '#555';
-        let scale = 0.4;
+        let scale = 1;
         c2d.setTransform(scale, 0, 0, scale,
             -this.state.camX*scale+150, -this.state.camY*scale+150);
         for (let sectorId in this.client.sectors){
@@ -71,8 +70,8 @@ class GameView extends React.Component {
     }
     newTank(){
         this.client.action(currentSectorId, {key: 't',
-            x: (Math.random()*200>>0)-100,
-            y: (Math.random()*200>>0)-100});
+            x: (Math.random()*200>>0)+50,
+            y: (Math.random()*200>>0)+50});
     }
     camOffset(x, y){
         this.setState(

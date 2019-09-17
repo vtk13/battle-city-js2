@@ -1,7 +1,6 @@
 * add multiply sectors support
   + display and camera move
-  * steps per sector
-  - tank control
+  + steps per sector
   - move objects across sectors
 - mechanism to enforce rules across sectors
   e.g. having only one tank to control
