@@ -22,7 +22,8 @@ class BCClient extends EventEmitter {
         this.factory = factory;
         session.on('step', this.onStep.bind(this));
         session.on('getSector', sectorId=>{
-            let {stepId, objects} = this.sectors[sectorId];
+            let stepId = this.sectors[sectorId].stepId;
+            let objects = this.sectors[sectorId].exportObjects();
             session.setSector(sectorId, stepId, objects);
         });
     }
@@ -65,8 +66,9 @@ class BCClient extends EventEmitter {
     }
     subscribe(sectorIds, onSubscribed){
         this.session.subscribe(sectorIds, (sectorId, stepId, objects)=>{
-            objects = objects.map(object=>this.factory.makeObject(object));
-            this.sectors[sectorId] = new BCClientSector(sectorId, stepId, objects, this.factory);
+            this.sectors[sectorId] = new BCClientSector(
+                sectorId, this.sectorWidth, stepId, this, this.factory);
+            this.sectors[sectorId].importObjects(objects);
             onSubscribed && onSubscribed(sectorId);
         });
     }
@@ -78,13 +80,18 @@ class BCClient extends EventEmitter {
     action(sectorId, action){
         this.sectors[sectorId].userActions.push(action);
     }
-    completeStep(sectorId){
-        let sector = this.sectors[sectorId], res = sector.completeStep();
-        this.session.step(sector.sectorId, res.stepId, res.hash, res.userActions);
-    }
-    completeStepAll(){
-        for (let sectorId in this.sectors)
-            this.completeStep(sectorId);
+    /**
+     * @param sectorIds string|Array|undefined
+     */
+    completeStep(sectorIds){
+        if (!sectorIds)
+            sectorIds = Object.keys(this.sectors);
+        if (!Array.isArray(sectorIds))
+            sectorIds = [sectorIds];
+        let finalized = _.map(_.pick(this.sectors, sectorIds),
+            sector=>({sector, res: sector.completeStep()}));
+        finalized.map(({sector, res})=>
+            this.session.step(sector.sectorId, res.stepId, res.hash, res.userActions));
     }
     onStep(sectorId, stepId, userActions){
         if (!this.sectors[sectorId])
@@ -95,12 +102,24 @@ class BCClient extends EventEmitter {
 }
 
 class BCClientSector {
-    constructor(sectorId, stepId, objects, factory){
+    constructor(sectorId, sectorWidth, stepId, client, factory){
+        // x*BCClient.sectorWidth+':'+y*BCClient.sectorWidth
         this.sectorId = sectorId;
+        this.sectorWidth = sectorWidth;
         this.stepId = stepId;
-        this.objects = objects;
+        this.objects = [];
+        this.client = client;
         this.factory = factory;
         this.userActions = [];
+    }
+    importObjects(objects){
+        this.objects = objects.map(object=>this.factory.makeObject(this, object));
+    }
+    exportObjects(){
+        return this.objects.map(object=>this.exportObject(object));
+    }
+    exportObject(object){
+        return _.omit(object, 'sector');
     }
     completeStep(){
         let userActions = this.userActions;
@@ -131,8 +150,11 @@ class BCClientSector {
                     console.warn('no target');
                 break;
             case 't':
-                this.objects.push(this.factory.makeObject({className: 'tank',
-                    x: action.x, y: action.y, sessionId}));
+                this.objects.push(this.factory.makeObject(this,
+                    {className: 'tank', x: action.x, y: action.y, sessionId}));
+                break;
+            case 'migrate':
+                this.objects.push(this.factory.makeObject(this, action.object));
                 break;
             default:
                 console.log('invalid action', action);
@@ -144,6 +166,30 @@ class BCClientSector {
                 object.step();
         }
     }
+    moveObject(object, x, y){
+        // todo use relative coordinates in sector?
+        let [sx, sy] = this.sectorId.split(':');
+        sx = +sx;
+        sy = +sy;
+        object.x = x;
+        object.y = y;
+        if (sx*this.sectorWidth<=x && x<(sx+1)*this.sectorWidth &&
+            sy*this.sectorWidth<=y && y<(sy+1)*this.sectorWidth)
+            return;
+        if (x<sx*this.sectorWidth)
+            sx--;
+        else if ((sx+1)*this.sectorWidth<=x)
+            sx++;
+        if (y<sy*this.sectorWidth)
+            sy--;
+        else if ((sy+1)*this.sectorWidth<=y)
+            sy++;
+        // todo emit action on current sector, server will emit it on target
+        //   sector once all subscribers confirm event
+        this.client.action(sx+':'+sy, {key: 'migrate', sx, sy,
+            object: this.exportObject(object)});
+        this.objects = this.objects.filter(o=>o!=object);
+    }
 }
 
 class BCObjectFactory {
@@ -153,10 +199,11 @@ class BCObjectFactory {
     register(className, constructor){
         this.classes[className] = constructor;
     }
-    makeObject(object){
+    makeObject(sector, object){
         let constructor = this.classes[object.className];
         let res = Object.create(constructor.prototype);
         Object.assign(res, object);
+        res.sector = sector;
         return res;
     }
 }

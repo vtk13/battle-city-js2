@@ -41,8 +41,8 @@ class GameView extends React.Component {
         c2d.clearRect(0, 0, canvas.width, canvas.height);
         c2d.lineWidth = 0.5;
         c2d.strokeStyle = '#555';
-        let scale = 1;
-        c2d.setTransform(scale, 0, 0, scale,
+        let scale = 0.4;
+        c2d.setTransform(scale, 0, 0, -scale,
             -this.state.camX*scale+150, -this.state.camY*scale+150);
         for (let sectorId in this.client.sectors){
             let sector = this.client.sectors[sectorId];
@@ -51,6 +51,8 @@ class GameView extends React.Component {
             c2d.fillStyle = sector._bg;
             let w = this.client.sectorWidth;
             c2d.fillRect(sx*w, sy*w, w, w);
+            c2d.fillStyle = '#fff';
+            c2d.fillRect(sx*w, sy*w, 10, 10);
         }
         for (let i=-5; i<5; i++)
             for (let j=-5; j<5; j++){
@@ -65,7 +67,8 @@ class GameView extends React.Component {
             }
         for (let sectorId in this.client.sectors)
             for (let object of this.client.sectors[sectorId].objects) {
-                c2d.drawImage(this.props.img, object.x, object.y);
+                // todo flip image
+                c2d.drawImage(this.props.img, object.x-16, object.y-16, 32, -32);
             }
     }
     newTank(){
@@ -88,7 +91,7 @@ class GameView extends React.Component {
             <table className="controls">
                 <tbody>
                 <tr>
-                    <td className="wide"><button type="button" onClick={()=>this.client.completeStepAll()}>step</button></td>
+                    <td className="wide"><button type="button" onClick={()=>this.client.completeStep()}>step</button></td>
                     <td></td>
                     <td><button type="button" onClick={()=>this.client.action(currentSectorId, {key: 'w'})}>🡅</button></td>
                     <td></td>

@@ -45,12 +45,13 @@ class BCSession extends EventEmitter {
 }
 
 class BCServerSector {
-    constructor(sectorId, stepId, objects){
+    constructor(sectorId, stepId, objectsData){
         this.sectorId = sectorId;
         this.stepId = stepId;
         // stepId of objects snapshot, objects is not synced every step
         this.objectsStepId = stepId;
-        this.objects = objects;
+        // todo rename to this.objectsData
+        this.objects = objectsData;
         this.sessions = {};
         this.awaitingCallbacks = [];
         this.lastSteps = {};
