@@ -58,12 +58,8 @@ class BCClient extends EventEmitter {
             ([dx, dy])=>(sx+dx)+':'+(sy+dy)));
         let keepKey = ''+this._checkCoord(x, this.sectorWidth>>1)
             +this._checkCoord(y, this.sectorWidth>>1);
-        console.log('KK', sx+':'+sy, x, y, subKey, keepKey);
         let toKeep = _.uniq(toSubscribe.concat(
             subscribeMap[keepKey].map(([dx, dy])=>(sx+dx)+':'+(sy+dy))));
-        console.log(currentSectors, x, y, //toSubscribe, toKeep,
-            _.difference(toSubscribe, currentSectors),
-            _.difference(currentSectors, toKeep));
         this.subscribe(_.difference(toSubscribe, currentSectors));
         this.unsubscribe(_.difference(currentSectors, toKeep));
     }
@@ -139,7 +135,7 @@ class BCClientSector {
                     x: action.x, y: action.y, sessionId}));
                 break;
             default:
-                console.log(action);
+                console.log('invalid action', action);
             }
         }
         for (let object of this.objects)
