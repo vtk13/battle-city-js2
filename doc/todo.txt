@@ -1,7 +1,14 @@
+- fix vertical camera movement
 * add multiply sectors support
   + display and camera move
   + steps per sector
   - move objects across sectors
+    + emit migrate event on target sector (simple but wrong)
+    + emit migrate event on current sector
+    - be able to follow camera with object on dev-view
+- do not wait for step from all clients, emit steps on server
+  - freeze while waiting for migrations?
+  - async compare hashes
 - mechanism to enforce rules across sectors
   e.g. having only one tank to control
 - add async calls support

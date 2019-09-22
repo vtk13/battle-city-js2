@@ -130,7 +130,6 @@ describe('client', ()=>{
         client2.subscribe([sector1]);
         sinon.assert.match(client1.sectors[sector1].objects[0],
             sinon.match({className: 'tank', x: 5, y: 5}));
-        assert.deepStrictEqual();
         client1.action(sector1, {key: 'w'});
         client1.completeStep(sector1);
         client2.completeStep(sector1);
@@ -167,10 +166,17 @@ describe('client', ()=>{
             let client1 = new BCClient(server.createSession(), factory);
             client1.subscribe([sector1, sector2]);
             client1.action(sector1, {key: 's'});
+            // moving command received on this step
             client1.completeStep();
+            // object moves and migration command is sent to sector2
             client1.completeStep();
             assert.deepStrictEqual(client1.sectors[sector1].objects, []);
-            sinon.assert.match(client1.sectors[sector2].objects[0], sinon.match({x: 5, y: -15}));
+            // sector2 receives and executes migration
+            client1.completeStep();
+            // another step to verify migrate event received only once
+            client1.completeStep();
+            assert.strictEqual(client1.sectors[sector2].objects.length, 1);
+            sinon.assert.match(client1.sectors[sector2].objects, [sinon.match({x: 5, y: -25})]);
         });
     });
 });

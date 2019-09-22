@@ -8,11 +8,10 @@ let factory = new BCObjectFactory();
 factory.register('tank', Tank);
 
 class BCDevServer extends BCServer {
-    subscribe(sectorIds, onSubscribed, session) {
-        for (let sectorId of sectorIds)
-            if (!this.sectors[sectorId])
-                this.sectors[sectorId]= new BCServerSector(sectorId, 0, []);
-        super.subscribe(sectorIds, onSubscribed, session);
+    getSector(sectorId){
+        if (!this.sectors[sectorId])
+            this.sectors[sectorId] = new BCServerSector(sectorId, 0, []);
+        return super.getSector(sectorId);
     }
 }
 

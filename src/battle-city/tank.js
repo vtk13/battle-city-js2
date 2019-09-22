@@ -1,28 +1,30 @@
 
 class Tank {
-    // todo: constructor is not called so far
-    constructor(id, sector, x, y){
-        this.id = id;
-        this.sector = sector;
-        this.x = x;
-        this.y = y;
+    constructor() {
+        this.id = 0;
+        this.sector = '';
+        this.x = 0;
+        this.y = 0;
         this.moving = null;
     }
+    // returns true if object should be removed from sector
     step(){
+        let remove;
         switch (this.moving){
         case 'w':
-            this.sector.moveObject(this, this.x, this.y+10);
+            remove = this.sector.moveObject(this, this.x, this.y+10);
             break;
         case 'a':
-            this.sector.moveObject(this, this.x-10, this.y);
+            remove = this.sector.moveObject(this, this.x-10, this.y);
             break;
         case 's':
-            this.sector.moveObject(this, this.x, this.y-10);
+            remove = this.sector.moveObject(this, this.x, this.y-10);
             break;
         case 'd':
-            this.sector.moveObject(this, this.x+10, this.y);
+            remove = this.sector.moveObject(this, this.x+10, this.y);
             break;
         }
+        return remove;
     }
 }
 

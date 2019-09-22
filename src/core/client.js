@@ -160,12 +160,13 @@ class BCClientSector {
                 console.log('invalid action', action);
             }
         }
-        for (let object of this.objects)
-        {
+        this.objects = this.objects.filter(object=>{
             if (object.step)
-                object.step();
-        }
+                return !object.step();
+            return true;
+        });
     }
+    // returns true if object migrated to another sector
     moveObject(object, x, y){
         // todo use relative coordinates in sector?
         let [sx, sy] = this.sectorId.split(':');
@@ -175,7 +176,7 @@ class BCClientSector {
         object.y = y;
         if (sx*this.sectorWidth<=x && x<(sx+1)*this.sectorWidth &&
             sy*this.sectorWidth<=y && y<(sy+1)*this.sectorWidth)
-            return;
+            return false;
         if (x<sx*this.sectorWidth)
             sx--;
         else if ((sx+1)*this.sectorWidth<=x)
@@ -184,11 +185,9 @@ class BCClientSector {
             sy--;
         else if ((sy+1)*this.sectorWidth<=y)
             sy++;
-        // todo emit action on current sector, server will emit it on target
-        //   sector once all subscribers confirm event
-        this.client.action(sx+':'+sy, {key: 'migrate', sx, sy,
-            object: this.exportObject(object)});
-        this.objects = this.objects.filter(o=>o!=object);
+        this.client.action(this.sectorId, {key: 'migrate',
+            sector: sx+':'+sy, object: this.exportObject(object)});
+        return true;
     }
 }
 

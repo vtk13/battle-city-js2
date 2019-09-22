@@ -1,3 +1,4 @@
+const _ = require('lodash');
 const EventEmitter = require('events');
 
 /**
@@ -24,7 +25,6 @@ class BCSession extends EventEmitter {
             onSubscribed && onSubscribed(sectorId, stepId, objects);
         }, this);
     }
-
     /**
      * @param sectorIds
      * @param onUnsubscribe function(sectorId)
@@ -56,18 +56,23 @@ class BCServerSector {
         this.awaitingCallbacks = [];
         this.lastSteps = {};
     }
+    _getStep(stepId){
+        if (!this.lastSteps[stepId])
+            this.lastSteps[stepId] = {n: 0, hashes: {}, userActions: []};
+        return this.lastSteps[stepId];
+    }
     // todo test new connection then step for previous connection
     //      ls.n will never be equal to sessions.length
     step(session, stepId, hash, userActions){
-        let ls = this.lastSteps[stepId] = this.lastSteps[stepId] || {n: 0, hashes: {}, userActions: []};
-        ls.hashes[hash] = ls.hashes[hash] || [];
-        ls.hashes[hash].push(session);
-        ls.userActions.push(...userActions);
-        ls.n++;
+        let step = this._getStep(stepId);
+        step.hashes[hash] = step.hashes[hash] || [];
+        step.hashes[hash].push(session);
+        step.userActions.push(...userActions.filter(a=>a.key!=='migrate'));
+        step.n++;
         // TODO: optimize Object.keys
-        if (ls.n < Object.keys(this.sessions).length)
-            return;
-        let hashes = Object.entries(ls.hashes).sort((a, b)=>b[1].length-a[1].length);
+        if (step.n < Object.keys(this.sessions).length)
+            return false;
+        let hashes = Object.entries(step.hashes).sort((a, b)=>b[1].length-a[1].length);
         if (hashes.length>1){
             if (hashes[0][1].length===hashes[1][1].length){
                 for (let sessionId in this.sessions)
@@ -79,8 +84,14 @@ class BCServerSector {
             }
         }
         for (let session of hashes[0][1])
-            session.emit('step', this.sectorId, stepId, ls.userActions);
+            session.emit('step', this.sectorId, stepId, step.userActions);
         this.stepId++;
+        return true;
+    }
+    // for server-side sector to sector events
+    addAction(action){
+        let step = this._getStep(this.stepId+1);
+        step.userActions.push(action);
     }
 }
 
@@ -95,9 +106,12 @@ class BCServer extends EventEmitter {
         let id = this.nextSessionId++;
         return this.sessions[id] = new BCSession(id, this);
     }
+    getSector(sectorId){
+        return this.sectors[sectorId];
+    }
     subscribe(sectorIds, onSubscribed, session){
         for (let sectorId of sectorIds){
-            let sector = this.sectors[sectorId];
+            let sector = this.getSector(sectorId);
             if (onSubscribed){
                 if (sector.stepId>sector.objectsStepId){
                     // todo save callbacks per sectorId
@@ -122,7 +136,11 @@ class BCServer extends EventEmitter {
     step(sectorId, stepId, hash, userActions, session){
         let sector = this.sectors[sectorId];
         sector.stepId = Math.max(sector.stepId, stepId);
-        sector.step(session, stepId, hash, userActions);
+        // todo: confirm all client sent the same migrates
+        if (sector.step(session, stepId, hash, userActions))
+            for (let userAction of userActions)
+                if (userAction.key==='migrate')
+                    this.getSector(userAction.sector).addAction(userAction);
     }
     setSector(sectorId, objectsStepId, objects){
         let sector = this.sectors[sectorId];
