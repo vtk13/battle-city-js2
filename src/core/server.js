@@ -6,22 +6,133 @@ function allEqual(obj){
     return arr.length && _.every(arr, v=>v==arr[0]);
 }
 
-class BCSession extends EventEmitter {
-    constructor(id, server){
-        super();
-        this.id = id;
-        this.server = server;
+class WsConnection {
+    constructor(transport, object){
+        WsConnection.callId = WsConnection.callId||1;
+        this.transport = transport;
+        this.object = object;
+        if (!object)
+            console.trace();
+        this.pending = {};
+        transport.on('message', async message=>{
+            let msg = JSON.parse(message.utf8Data);
+            if (msg.call)
+            {
+                let data = await this.object[msg.call](...msg.args||[]);
+                transport.sendUTF(JSON.stringify({id: msg.id, data}));
+            }
+            else if (msg.id)
+            {
+                if (!(msg.id in this.pending))
+                    return void console.log('slow finished', msg);
+                this.pending[msg.id](msg);
+                delete this.pending[msg.id];
+            }
+        });
+    }
+    call(func, args){
+        return new Promise((resolve, reject)=>{
+            let callId = WsConnection.callId++;
+            let timerId = setTimeout(()=>{
+                delete this.pending[callId];
+                reject('timeout');
+            }, 2000);
+            let msg = JSON.stringify({call: func, id: callId, args});
+            this.transport.sendUTF(msg);
+            this.pending[callId] = msg=>{
+                clearTimeout(timerId);
+                resolve(msg.data);
+            }
+        });
+    }
+}
+
+class BCClientSession {
+    constructor(connection){
+        this.connection = new WsConnection(connection, this);
     }
     /**
      * @param sectorIds
      * @param onSubscribed function(sectorId, stepId, objects)
-     * @todo common word, rename. 'sectorSubscribe'?
+     * @deprecated
      */
     subscribe(sectorIds, onSubscribed){
         this.server.subscribe(sectorIds, (sectorId, stepId, objects)=>{
             objects = JSON.parse(JSON.stringify(objects));
             onSubscribed && onSubscribed(sectorId, stepId, objects);
         }, this);
+    }
+    /**
+     * @param sectorId
+     * @return {sectorId, stepId, objects}
+     */
+    sectorSubscribe(sectorId){
+        return this.connection.call('sectorSubscribe', [sectorId]);
+    }
+    /**
+     * @param sectorIds
+     * @param onUnsubscribe function(sectorId)
+     */
+    unsubscribe(sectorIds, onUnsubscribe){
+        this.server.unsubscribe(sectorIds, this, onUnsubscribe);
+    }
+    sectorUnsubscribe(sectorId){
+        return this.connection.call('sectorUnsubscribe', [sectorId]);
+    }
+    step(sectorId, stepId, hash, userActions){
+        userActions = userActions.map(action=>{
+            action.sessionId = this.id;
+            return action;
+        });
+        this.server.step(sectorId, stepId, hash, userActions, this);
+    }
+    userAction(sectorId, userAction){
+        return this.connection.call('userAction', [sectorId, userAction]);
+    }
+    confirmStep(sectorId, stepId, hash){
+        return this.connection.call('confirmStep', [sectorId, stepId, hash]);
+    }
+    setSector(sectorId, objectsStepId, objects){
+        this.server.setSector(sectorId, objectsStepId, objects);
+    }
+    // asks client to get sector data
+    // client is expected to call setSector once received the message
+    getSector(sectorId){
+        // todo
+    }
+    // it is time to process another step
+    onStep(sectorId, stepId, userActions){
+        // todo
+    }
+    error(msg){
+        // todo
+    }
+}
+
+class BCServerSession extends EventEmitter {
+    constructor(id, connection, server){
+        super();
+        this.id = id;
+        this.connection = new WsConnection(connection, this);
+        this.server = server;
+    }
+    /**
+     * @param sectorIds
+     * @param onSubscribed function(sectorId, stepId, objects)
+     * @deprecated
+     */
+    subscribe(sectorIds, onSubscribed){
+        this.server.subscribe(sectorIds, (sectorId, stepId, objects)=>{
+            objects = JSON.parse(JSON.stringify(objects));
+            onSubscribed && onSubscribed(sectorId, stepId, objects);
+        }, this);
+    }
+    /**
+     * @param sectorId
+     * @param onSubscribed function(sectorId, stepId, objects)
+     */
+    sectorSubscribe(sectorId, onSubscribed){
+        return this.server.sectorSubscribe(sectorId, this);
     }
     /**
      * @param sectorIds
@@ -57,10 +168,10 @@ class BCSession extends EventEmitter {
     }
     // it is time to process another step
     onStep(sectorId, stepId, userActions){
-        this.emit('step', sectorId, stepId, userActions);
+        return this.connection.call('onStep', [sectorId, stepId, userActions]);
     }
     error(msg){
-        this.emit('error', msg);
+        return this.connection.call('error', [msg]);
     }
 }
 
@@ -82,8 +193,11 @@ class BCServerSector2 {
         this.pendingSteps = {};
         this.userActions = [];
     }
-    connect(session){
+    async connect(session){
         this.sessions.push(session);
+        if (this.stepId>this.objectsStepId)
+            await Object.values(this.sessions)[0].getSector(this.sectorId);
+        return {sectorId: this.sectorId, stepId: this.stepId, objects: this.objects};
     }
     disconnect(sessionId, error){
         let session = _.find(this.sessions, {id: sessionId});
@@ -217,9 +331,9 @@ class BCServer extends EventEmitter {
         this.nextSessionId = 1;
         this.sessions = {};
     }
-    createSession(){
+    createSession(connection){
         let id = this.nextSessionId++;
-        return this.sessions[id] = new BCSession(id, this);
+        return this.sessions[id] = new BCServerSession(id, connection, this);
     }
     getSector(sectorId){
         return this.sectors[sectorId];
@@ -238,7 +352,9 @@ class BCServer extends EventEmitter {
             sector.sessions[session.id] = session;
         }
     }
-
+    sectorSubscribe(sectorId, session){
+        return this.getSector(sectorId).connect(session);
+    }
     /**
      * @deprecated
      */
@@ -287,4 +403,4 @@ class BCServer extends EventEmitter {
     }
 }
 
-module.exports = {BCServer, BCServerSector, BCServerSector2};
+module.exports = {BCServer, BCServerSector, BCServerSector2, WsConnection, BCClientSession};

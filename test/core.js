@@ -1,229 +1,280 @@
 const _ = require('lodash');
 const assert = require('assert');
 const sinon = require('sinon');
-const {BCServer, BCServerSector, BCServerSector2} = require('../src/core/server');
+const http = require('http');
+const {server: WebSocketServer, client: WebSocketClient} = require('websocket');
+const {BCServer, BCServerSector, BCServerSector2, WsConnection,
+    BCClientSession} = require('../src/core/server');
 const {BCClient, BCObjectFactory} = require('../src/core/client');
 const {Tank} = require('../src/battle-city/tank');
+
+describe('util', ()=>{
+    describe('connection', ()=>{
+        it('call', done=>{
+            let clientSide, serverSide;
+            class A {
+                constructor(connecion, value){
+                    this.connection = new WsConnection(connecion, this);
+                    this.value = value;
+                }
+                callOtherSide(n){
+                    return this.connection.call('getValue', [n]);
+                }
+                getValue(n){
+                    return new Promise((resolve)=>{
+                        setTimeout(()=>resolve(this.value+n), 1);
+                    });
+                };
+            }
+            let server = http.createServer(function(request, response){
+                response.writeHead(404);
+                response.end();
+            });
+            let wsServer = new WebSocketServer({
+                httpServer: server,
+                autoAcceptConnections: false,
+            });
+            wsServer.on('request', function(request){
+                let connection = request.accept('echo-protocol', request.origin);
+                serverSide = new A(connection, 'server');
+            });
+            server.listen(function(){
+                let {port, address} = this.address();
+                let client = new WebSocketClient();
+                client.on('connect', async (connection)=>{
+                    clientSide = new A(connection, 'client');
+                    assert.deepStrictEqual(await Promise.all([
+                        clientSide.callOtherSide(1),
+                        clientSide.callOtherSide(2),
+                        serverSide.callOtherSide(1),
+                        serverSide.callOtherSide(2),
+                    ]), ['server1', 'server2', 'client1', 'client2']);
+                    connection.close();
+                    server.close();
+                    done();
+                });
+                client.connect(`ws://${address}:${port}/`, 'echo-protocol');
+            });
+        });
+    });
+});
 
 describe('server', ()=>{
     let sb;
     beforeEach(()=>{ sb = sinon.createSandbox(); });
     afterEach(()=>sb.verifyAndRestore());
-    describe('old test to be reviewed', ()=>{
-        let server;
-        beforeEach(()=>{
-            server = new BCServer({
-                1: new BCServerSector(1, 234, [{}, {}]),
-            });
+    let server, sector1, sector2, httpServer, connections;
+    let connect = ()=>new Promise(resolve=>{
+        let client = new WebSocketClient();
+        client.on('connect', connection=>{
+            connections.push(connection);
+            resolve(new BCClientSession(connection));
         });
-        it('player connects to the server and gets sector objects', done=>{
-            let session = server.createSession();
-            session.subscribe([1], (sectorId, stepId, objects)=>{
-                assert.strictEqual(sectorId, 1);
-                assert.strictEqual(stepId, 234);
-                assert.deepStrictEqual(objects, [{}, {}]);
-                done();
-            });
+        let {port, address} = httpServer.address();
+        client.connect(`ws://${address}:${port}/`, 'echo-protocol');
+    });
+    let init = (...args)=>Promise.all(args.map(async sector=>{
+        let session = await connect();
+        if (sector)
+            await session.sectorSubscribe(sector);
+        return session;
+    }));
+    beforeEach(()=>new Promise(resolve=>{
+        connections = [];
+        sector1 = new BCServerSector2('1:1', 0, []);
+        sector2 = new BCServerSector2('2:2', 10, [{}, {}]);
+        server = new BCServer({'1:1': sector1, '2:2': sector2});
+        httpServer = http.createServer(function(request, response){
+            response.writeHead(404);
+            response.end();
         });
-        // todo send actions to other sectors
-        it('step is emitted once all player sent actions', done=>{
-            let session1 = server.createSession();
-            let session2 = server.createSession();
-            session2.on('step', (sectorId, stepId, userActions)=>{
-                assert.strictEqual(sectorId, 1);
-                assert.strictEqual(stepId, 234);
-                assert.deepStrictEqual(userActions,
-                    [{key: 'w', sessionId: 1}, {key: 'a', sessionId: 2}]);
-                done();
-            });
-            session1.subscribe([1]);
-            session2.subscribe([1]);
-            session1.step(1, 234, 'A', [{key: 'w'}]);
-            session2.step(1, 234, 'A', [{key: 'a'}]);
+        let wsServer = new WebSocketServer({httpServer, autoAcceptConnections: false});
+        wsServer.on('request', function(request){
+            let connection = request.accept('echo-protocol', request.origin);
+            server.createSession(connection);
         });
-        it('players receive the same step events for each player', done=>{
-            let session1 = server.createSession();
-            let session2 = server.createSession();
-            let n = 0;
-            session1.on('step', ()=>{
-                if (++n===2)
-                    done();
-            });
-            session1.subscribe([1]);
-            session1.step(1, 234, 'A', [{key: 'w'}]);
-            session2.step(1, 234, 'A', [{key: 's'}]);
-        });
-        it('player receives actual objects on connect', done=>{
-            let session1 = server.createSession();
-            session1.on('getSector', sectorId=>{
-                session1.setSector(sectorId, 235, [{}, {}, {}]);
-            });
-            session1.subscribe([1]);
-            session1.step(1, 234, 'A', [{key: 'w'}]);
-
-            let session2 = server.createSession();
-            session2.subscribe([1], (sectorId, stepId, objects)=>{
-                assert.strictEqual(stepId, 235);
-                assert.deepStrictEqual(objects, [{}, {}, {}]);
-                done();
-            });
-        });
-        it('player is unsubscribed', ()=>{
-            let session1 = server.createSession();
-            session1.subscribe([1]);
-            let session2 = server.createSession();
-            session2.subscribe([1]);
-            let called = 0;
-            session2.on('step', ()=>{
-                called++;
-            });
-            session1.step(1, 234, 'A', []);
-            session2.step(1, 234, 'A', []);
-            session2.unsubscribe([1]);
-            session1.step(1, 235, 'A', []);
-            // todo: ensure step is done
-            assert.strictEqual(called, 1);
-        });
-        it('kick all users on wrong hash', done=>{
-            let n = 0;
-            let onError = ()=>{
-                n++;
-                if (n===2)
-                    done();
+        httpServer.listen(resolve);
+    }));
+    afterEach(()=>new Promise(resolve=>{
+        connections.map(c=>c.close());
+        httpServer.close(()=>resolve());
+    }));
+    it('player connects to the server and gets sector objects', async ()=>{
+        let [session] = await init(false);
+        let {sectorId, stepId, objects} = await session.sectorSubscribe('2:2');
+        assert.strictEqual(sectorId, '2:2');
+        assert.strictEqual(stepId, 10);
+        assert.deepStrictEqual(objects, [{}, {}]);
+    });
+    // sector is not functional without at least 2 clients
+    it('initialization', async ()=>{
+        let [session1, session2] = await init(false, false);
+        let promise = new Promise(resolve=>{
+            session1.onStep = (...args)=>{
+                assert.deepStrictEqual(args, ['1:1', 0, []]);
+                resolve();
             };
-            let session1 = server.createSession();
-            session1.subscribe([1]);
-            session1.on('error', onError);
-            let session2 = server.createSession();
-            session2.subscribe([1]);
-            session2.on('error', onError);
-            session1.step(1, 234, 'A', []);
-            session2.step(1, 234, 'B', []);
         });
-        it('kick user on wrong hash', done=>{
-            let session1 = server.createSession();
-            session1.subscribe([1]);
-            session1.on('error', ()=>assert(false));
-            let session2 = server.createSession();
-            session2.subscribe([1]);
-            session2.on('error', ()=>assert(false));
-            let session3 = server.createSession();
-            session3.subscribe([1]);
-            session3.on('error', ()=>done());
-            session1.step(1, 234, 'B', []);
-            session2.step(1, 234, 'B', []);
-            session3.step(1, 234, 'X', []);
-        });
+        sector1.step();
+        assert.strictEqual(sector1.stepId, 0, 'without clients step has no effect');
+        await session1.sectorSubscribe('1:1');
+        sector1.step();
+        assert.strictEqual(sector1.stepId, 0, '1 client still not enough to proceed');
+        await session2.sectorSubscribe('1:1');
+        sector1.step();
+        assert.strictEqual(sector1.stepId, 1, 'sector starts stepping');
+        return promise;
     });
-    describe('BCServerSector2', ()=>{
-        // todo: refactor sector.connect() calls to session.subscribe()
-        let sector, server;
-        beforeEach(()=>{
-            sector = new BCServerSector2();
-            server = new BCServer({'0:0': sector});
+    it('sending actions', async ()=>{
+        let [session1, session2] = await init('1:1', '1:1');
+        let promise = new Promise(resolve=>{
+            session1.onStep = (...args)=>{
+                assert.deepStrictEqual(args, ['1:1', 0,
+                    [{key: 'w', sessionId: 1}, {key: 'a', sessionId: 2}]]);
+                resolve();
+            };
         });
-        let init = (...args)=>args.map(connected=>{
-            let session = server.createSession();
-            if (connected)
-                sector.connect(session);
-            return session;
-        });
-        // sector is not functional without at least 2 clients
-        it('initialization', ()=>{
-            let [session1, session2] = init(false, false);
-            sb.spy(session1, 'onStep');
-            server.step2();
-            assert.strictEqual(sector.stepId, 0, 'without clients step has no effect');
-            sector.connect(session1);
-            sector.step();
-            assert.strictEqual(sector.stepId, 0, '1 client still not enough to proceed');
-            sector.connect(session2);
-            sector.step();
-            assert.strictEqual(sector.stepId, 1, 'sector starts stepping');
-            assert(session1.onStep.calledOnceWith('0:0', 0, []));
-        });
-        it('sending actions', ()=>{
-            let [session1, session2] = init(true, true);
-            sb.spy(session1, 'onStep');
-            session1.userAction('0:0', {key: 'w'});
-            session2.userAction('0:0', {key: 'a'});
-            sector.step();
-            assert.strictEqual(sector.stepId, 1, 'sector starts stepping');
-            assert(session1.onStep.calledOnceWith('0:0', 0,
-                [{key: 'w', sessionId: 1}, {key: 'a', sessionId: 2}]));
-        });
-        it('normal flow', ()=>{
-            let [session1, session2] = init(true, true);
-            sector.step();
-            session1.confirmStep(sector.sectorId, 0, 'A');
-            assert.strictEqual(sector._oldestPendingStep(), 0,
-                'waiting for all clients confirmations');
-            session2.confirmStep(sector.sectorId, 0, 'A');
-            assert.strictEqual(sector._oldestPendingStep(), 1,
-                'step is confirmed once all clients sent equal hashes');
-        });
-        it('average slow client', ()=>{
-            let [session1, session2] = init(true, true);
-            sector.step();
-            session1.confirmStep(sector.sectorId, 0, 'A');
-            sector.step();
-            session1.confirmStep(sector.sectorId, 1, 'A');
-            assert.strictEqual(sector._oldestPendingStep(), 0,
-                'waiting for all clients confirmations');
-            session2.confirmStep(sector.sectorId, 0, 'A');
-            assert.strictEqual(sector._oldestPendingStep(), 1,
-                'step is confirmed once all clients sent equal hashes');
-            session2.confirmStep(sector.sectorId, 1, 'A');
-            assert.strictEqual(sector._oldestPendingStep(), 2,
-                'step is confirmed once all clients sent equal hashes');
-        });
-        it('client timeout', done=>{
-            let [session1, session2] = init(true, true);
-            session2.on('error', ()=>done());
-            sector.maxStepDepth = 2;
-            sector.step();
-            session1.confirmStep(sector.sectorId, 0, 'A');
-            sector.step();
-            session1.confirmStep(sector.sectorId, 1, 'A');
-            sector.step();
-        });
-        it('connection', ()=>{
-            let [session1, session2, session3] = init(true, true, false);
-            sector.step();
-            sector.connect(session3);
-            session1.confirmStep(sector.sectorId, 0, 'A');
-            session2.confirmStep(sector.sectorId, 0, 'A');
-            assert.strictEqual(sector._oldestPendingStep(), 1,
-                'step is confirmed once all clients sent equal hashes');
-            sector.step();
-            session1.confirmStep(sector.sectorId, 1, 'A');
-            session2.confirmStep(sector.sectorId, 1, 'A');
-            assert.strictEqual(sector._oldestPendingStep(), 1,
-                'step is confirmed once all clients sent equal hashes');
-            session3.confirmStep(sector.sectorId, 1, 'A');
-            assert.strictEqual(sector._oldestPendingStep(), 2,
-                'step is confirmed once all clients sent equal hashes');
-        });
-        it('disconnection', ()=>{
-            let [session1, session2, session3] = init(true, true, true);
-            sector.step();
-            session1.confirmStep(sector.sectorId, 0, 'A');
-            session2.confirmStep(sector.sectorId, 0, 'A');
-            session3.sectorUnsubscribe(sector.sectorId);
-            assert.strictEqual(sector._oldestPendingStep(), 1,
-                'step is confirmed once all clients sent equal hashes');
-        });
-        it('disconnection + freeze', ()=>{
-            let [session1, session2] = init(true, true);
-            sb.spy(sector, '_callChipAndDale');
-            sector.step();
-            session1.confirmStep(sector.sectorId, 0, 'A');
-            session2.sectorUnsubscribe(sector.sectorId);
-            assert.strictEqual(sector._oldestPendingStep(), 0,
-                'step is confirmed once all clients sent equal hashes');
-            assert(sector._callChipAndDale.calledOnce);
-        });
+        await session1.userAction('1:1', {key: 'w'});
+        await session2.userAction('1:1', {key: 'a'});
+        sector1.step();
+        assert.strictEqual(sector1.stepId, 1, 'sector starts stepping');
+        return promise;
     });
+    it('normal flow', async ()=>{
+        let [session1, session2] = await init('1:1', '1:1');
+        sector1.step();
+        await session1.confirmStep(sector1.sectorId, 0, 'A');
+        assert.strictEqual(sector1._oldestPendingStep(), 0,
+            'waiting for all clients confirmations');
+        await session2.confirmStep(sector1.sectorId, 0, 'A');
+        assert.strictEqual(sector1._oldestPendingStep(), 1,
+            'step is confirmed once all clients sent equal hashes');
+    });
+    it('average slow client', async ()=>{
+        let [session1, session2] = await init('1:1', '1:1');
+        sector1.step();
+        await session1.confirmStep(sector1.sectorId, 0, 'A');
+        sector1.step();
+        await session1.confirmStep(sector1.sectorId, 1, 'A');
+        assert.strictEqual(sector1._oldestPendingStep(), 0,
+            'waiting for all clients confirmations');
+        await session2.confirmStep(sector1.sectorId, 0, 'A');
+        assert.strictEqual(sector1._oldestPendingStep(), 1,
+            'step is confirmed once all clients sent equal hashes');
+        await session2.confirmStep(sector1.sectorId, 1, 'A');
+        assert.strictEqual(sector1._oldestPendingStep(), 2,
+            'step is confirmed once all clients sent equal hashes');
+    });
+    it('client timeout', async ()=>{
+        let [session1, session2] = await init('1:1', '1:1');
+        let promise = new Promise(resolve=>{
+            session2.error = ()=>resolve();
+        });
+        sector1.maxStepDepth = 2;
+        sector1.step();
+        await session1.confirmStep(sector1.sectorId, 0, 'A');
+        sector1.step();
+        await session1.confirmStep(sector1.sectorId, 1, 'A');
+        sector1.step();
+        return promise;
+    });
+    it('connection', async ()=>{
+        let [session1, session2, session3] = await init('1:1', '1:1', false);
+        sector1.step();
+        await session3.sectorSubscribe('1:1');
+        await session1.confirmStep(sector1.sectorId, 0, 'A');
+        await session2.confirmStep(sector1.sectorId, 0, 'A');
+        assert.strictEqual(sector1._oldestPendingStep(), 1,
+            'step is confirmed once all clients sent equal hashes');
+        sector1.step();
+        await session1.confirmStep(sector1.sectorId, 1, 'A');
+        await session2.confirmStep(sector1.sectorId, 1, 'A');
+        assert.strictEqual(sector1._oldestPendingStep(), 1,
+            'step is confirmed once all clients sent equal hashes');
+        await session3.confirmStep(sector1.sectorId, 1, 'A');
+        assert.strictEqual(sector1._oldestPendingStep(), 2,
+            'step is confirmed once all clients sent equal hashes');
+    });
+    it('disconnection', async ()=>{
+        let [session1, session2, session3] = await init('1:1', '1:1', '1:1');
+        sector1.step();
+        await session1.confirmStep(sector1.sectorId, 0, 'A');
+        await session2.confirmStep(sector1.sectorId, 0, 'A');
+        await session3.sectorUnsubscribe(sector1.sectorId);
+        assert.strictEqual(sector1._oldestPendingStep(), 1,
+            'step is confirmed once all clients sent equal hashes');
+    });
+    it('disconnection + freeze', async ()=>{
+        let [session1, session2] = await init('1:1', '1:1');
+        sb.spy(sector1, '_callChipAndDale');
+        sector1.step();
+        await session1.confirmStep(sector1.sectorId, 0, 'A');
+        await session2.sectorUnsubscribe(sector1.sectorId);
+        assert.strictEqual(sector1._oldestPendingStep(), 0,
+            'step is confirmed once all clients sent equal hashes');
+        assert(sector1._callChipAndDale.calledOnce);
+    });
+    // it('player receives actual objects on connect', done=>{
+    //     let session1 = server.createSession();
+    //     session1.on('getSector', sectorId=>{
+    //         session1.setSector(sectorId, 235, [{}, {}, {}]);
+    //     });
+    //     session1.subscribe([1]);
+    //     session1.step(1, 234, 'A', [{key: 'w'}]);
+    //
+    //     let session2 = server.createSession();
+    //     session2.subscribe([1], (sectorId, stepId, objects)=>{
+    //         assert.strictEqual(stepId, 235);
+    //         assert.deepStrictEqual(objects, [{}, {}, {}]);
+    //         done();
+    //     });
+    // });
+    // it('player is unsubscribed', ()=>{
+    //     let session1 = server.createSession();
+    //     session1.subscribe([1]);
+    //     let session2 = server.createSession();
+    //     session2.subscribe([1]);
+    //     let called = 0;
+    //     session2.on('step', ()=>{
+    //         called++;
+    //     });
+    //     session1.step(1, 234, 'A', []);
+    //     session2.step(1, 234, 'A', []);
+    //     session2.unsubscribe([1]);
+    //     session1.step(1, 235, 'A', []);
+    //     // todo: ensure step is done
+    //     assert.strictEqual(called, 1);
+    // });
+    // it('kick all users on wrong hash', done=>{
+    //     let n = 0;
+    //     let onError = ()=>{
+    //         n++;
+    //         if (n===2)
+    //             done();
+    //     };
+    //     let session1 = server.createSession();
+    //     session1.subscribe([1]);
+    //     session1.on('error', onError);
+    //     let session2 = server.createSession();
+    //     session2.subscribe([1]);
+    //     session2.on('error', onError);
+    //     session1.step(1, 234, 'A', []);
+    //     session2.step(1, 234, 'B', []);
+    // });
+    // it('kick user on wrong hash', done=>{
+    //     let session1 = server.createSession();
+    //     session1.subscribe([1]);
+    //     session1.on('error', ()=>assert(false));
+    //     let session2 = server.createSession();
+    //     session2.subscribe([1]);
+    //     session2.on('error', ()=>assert(false));
+    //     let session3 = server.createSession();
+    //     session3.subscribe([1]);
+    //     session3.on('error', ()=>done());
+    //     session1.step(1, 234, 'B', []);
+    //     session2.step(1, 234, 'B', []);
+    //     session3.step(1, 234, 'X', []);
+    // });
 });
 
 describe('client', ()=>{

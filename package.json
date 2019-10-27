@@ -16,7 +16,8 @@
     "mocha": "^6.2.0",
     "react": "^16.9.0",
     "react-dom": "^16.9.0",
-    "sinon": "^7.4.1"
+    "sinon": "^7.4.1",
+    "websocket": "^1.0.30"
   },
   "devDependencies": {
     "@babel/core": "^7.5.4",
