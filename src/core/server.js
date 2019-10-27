@@ -1,14 +1,11 @@
 const _ = require('lodash');
 const EventEmitter = require('events');
 
-/**
- * emits:
- * - getSector(sectorId) - server wants to get actual objects for the sector
- *   and you should send it back by calling setSector
- * - subscribe(sectorId, objects) - just subscribed for a sector
- * - step(sectorId, stepId, userActions) - another step is ready to be processed
- * - error
- */
+function allEqual(obj){
+    let arr = Object.values(obj);
+    return arr.length && _.every(arr, v=>v==arr[0]);
+}
+
 class BCSession extends EventEmitter {
     constructor(id, server){
         super();
@@ -18,6 +15,7 @@ class BCSession extends EventEmitter {
     /**
      * @param sectorIds
      * @param onSubscribed function(sectorId, stepId, objects)
+     * @todo common word, rename. 'sectorSubscribe'?
      */
     subscribe(sectorIds, onSubscribed){
         this.server.subscribe(sectorIds, (sectorId, stepId, objects)=>{
@@ -32,6 +30,9 @@ class BCSession extends EventEmitter {
     unsubscribe(sectorIds, onUnsubscribe){
         this.server.unsubscribe(sectorIds, this, onUnsubscribe);
     }
+    sectorUnsubscribe(sectorId){
+        this.server.sectorUnsubscribe(sectorId, this.id);
+    }
     step(sectorId, stepId, hash, userActions){
         userActions = userActions.map(action=>{
             action.sessionId = this.id;
@@ -39,17 +40,130 @@ class BCSession extends EventEmitter {
         });
         this.server.step(sectorId, stepId, hash, userActions, this);
     }
+    userAction(sectorId, userAction){
+        userAction.sessionId = this.id;
+        this.server.userAction(sectorId, userAction);
+    }
+    confirmStep(sectorId, stepId, hash){
+        this.server.confirmStep(sectorId, this, stepId, hash);
+    }
     setSector(sectorId, objectsStepId, objects){
         this.server.setSector(sectorId, objectsStepId, objects);
+    }
+    // asks client to get sector data
+    // client is expected to call setSector once received the message
+    getSector(sectorId){
+        this.emit('getSector', sectorId);
+    }
+    // it is time to process another step
+    onStep(sectorId, stepId, userActions){
+        this.emit('step', sectorId, stepId, userActions);
+    }
+    error(msg){
+        this.emit('error', msg);
+    }
+}
+
+class BCServerSector2 {
+    constructor(sectorId = '0:0', stepId = 0, objectsData = {}){
+        this.sectorId = sectorId;
+        // current step id
+        // increased after step is done
+        this.stepId = stepId;
+        // stepId of objects snapshot
+        // objects are not synced every step
+        this.objectsStepId = stepId;
+        // latest available version of objects
+        // data for objectsStepId
+        // todo rename to this.objectsData
+        this.objects = objectsData;
+        this.sessions = [];
+        this.maxStepDepth = 10;
+        this.pendingSteps = {};
+        this.userActions = [];
+    }
+    connect(session){
+        this.sessions.push(session);
+    }
+    disconnect(sessionId, error){
+        let session = _.find(this.sessions, {id: sessionId});
+        if (error)
+            session.error(error);
+        for (let stepId in this.pendingSteps)
+        {
+            let step = this.pendingSteps[stepId];
+            if (step.confirmed)
+                continue;
+            delete step.hashes[sessionId];
+            this._processStep(step);
+        }
+    }
+    step(){
+        if (this.sessions.length<2)
+            return;
+        this.pendingSteps[this.stepId] = {
+            stepId: this.stepId,
+            confirmed: false,
+            hashes: this.sessions.reduce((acc, session)=>{
+                acc[session.id] = undefined;
+                return acc;
+            }, {}),
+            userActions: this.userActions,
+        };
+        for (let session of this.sessions)
+            session.onStep(this.sectorId, this.stepId, this.userActions);
+        this.userActions = [];
+        this.stepId++;
+        if (_.filter(this.pendingSteps, {confirmed: false}).length>this.maxStepDepth)
+        {
+            let step = _.find(this.pendingSteps, {confirmed: false});
+            for (let sessionId in step.hashes)
+                if (!step.hashes[sessionId])
+                    this.disconnect(+sessionId, 'timeout');
+        }
+    }
+    confirmStep(session, stepId, hash){
+        if (!(stepId in this.pendingSteps))
+            throw new Error('Invalid stepId');
+        let step = this.pendingSteps[stepId];
+        if (!(session.id in step.hashes))
+            throw new Error('Unexpected session');
+        step.hashes[session.id] = hash;
+        this._processStep(step);
+    }
+    addAction(action){
+        this.userActions.push(action);
+    }
+    _processStep(step){
+        if (!_.every(step.hashes, Boolean))
+            return;
+        if (_.keys(step.hashes).length<2)
+            return void this._callChipAndDale();
+        if (allEqual(step.hashes))
+            step.confirmed = true;
+        else
+            throw new Error('TODO');
+    }
+    _oldestPendingStep(){
+        let step = _.find(this.pendingSteps, {confirmed: false});
+        return step ? step.stepId : this.stepId;
+    }
+    _callChipAndDale(){
+        // todo
     }
 }
 
 class BCServerSector {
     constructor(sectorId, stepId, objectsData){
         this.sectorId = sectorId;
+        // current step id
+        // increased after step is done
         this.stepId = stepId;
-        // stepId of objects snapshot, objects is not synced every step
+        // stepId of objects snapshot
+        // objects are not synced every step
         this.objectsStepId = stepId;
+        // latest available version of objects
+        // data for objectsStepId
         // todo rename to this.objectsData
         this.objects = objectsData;
         this.sessions = {};
@@ -76,15 +190,15 @@ class BCServerSector {
         if (hashes.length>1){
             if (hashes[0][1].length===hashes[1][1].length){
                 for (let sessionId in this.sessions)
-                    this.sessions[sessionId].emit('error');
+                    this.sessions[sessionId].error('todo');
             } else {
                 for (let i=1; i<hashes.length; i++)
                     for (let session of hashes[i][1])
-                        session.emit('error');
+                        session.error('todo');
             }
         }
         for (let session of hashes[0][1])
-            session.emit('step', this.sectorId, stepId, step.userActions);
+            session.onStep(this.sectorId, stepId, step.userActions);
         this.stepId++;
         return true;
     }
@@ -99,6 +213,7 @@ class BCServer extends EventEmitter {
     constructor(sectors){
         super();
         this.sectors = sectors||{};
+        this.sectors2 = sectors||{};
         this.nextSessionId = 1;
         this.sessions = {};
     }
@@ -116,13 +231,17 @@ class BCServer extends EventEmitter {
                 if (sector.stepId>sector.objectsStepId){
                     // todo save callbacks per sectorId
                     sector.awaitingCallbacks.push(onSubscribed);
-                    Object.values(sector.sessions)[0].emit('getSector', sectorId);
+                    Object.values(sector.sessions)[0].getSector(sectorId);
                 } else
                     onSubscribed(sectorId, sector.stepId, sector.objects);
             }
             sector.sessions[session.id] = session;
         }
     }
+
+    /**
+     * @deprecated
+     */
     unsubscribe(sectorIds, session, onUnsubscribe){
         for (let sectorId of sectorIds){
             let sector = this.sectors[sectorId];
@@ -131,6 +250,9 @@ class BCServer extends EventEmitter {
                 delete sector.sessions[session.id];
             onUnsubscribe && onUnsubscribe(sectorId);
         }
+    }
+    sectorUnsubscribe(sectorId, sessionId){
+        this.sectors[sectorId].disconnect(sessionId);
     }
     // TODO: session is circular dependency
     step(sectorId, stepId, hash, userActions, session){
@@ -142,6 +264,19 @@ class BCServer extends EventEmitter {
                 if (userAction.key==='migrate')
                     this.getSector(userAction.sector).addAction(userAction);
     }
+    userAction(sectorId, userAction){
+        // todo: confirm all client sent the same migrates
+        sectorId = userAction.key==='migrate' ? userAction.sector : sectorId;
+        this.getSector(sectorId).addAction(userAction);
+    }
+    step2(){
+        for (let sectorId in this.sectors2)
+            this.sectors2[sectorId].step();
+    }
+    confirmStep(sectorId, session, stepId, hash){
+        let sector = this.sectors2[sectorId];
+        sector.confirmStep(session, stepId, hash);
+    }
     setSector(sectorId, objectsStepId, objects){
         let sector = this.sectors[sectorId];
         sector.objectsStepId = objectsStepId;
@@ -152,4 +287,4 @@ class BCServer extends EventEmitter {
     }
 }
 
-module.exports = {BCServer, BCServerSector};
+module.exports = {BCServer, BCServerSector, BCServerSector2};

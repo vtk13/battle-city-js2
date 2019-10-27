@@ -1,3 +1,11 @@
+* do not wait for step from all clients, emit steps on server
+  * async compare hashes
+    - refactor BCServerSector so it
+      - emit step on its own (or when BCServer calls)
+      - collects actions for latest steps
+      - collects hashes for latest steps and react accordingly
+      - handle connection and disconnection in the middle of a step
+  - freeze while waiting for migrations?
 - fix vertical camera movement
 * add multiply sectors support
   + display and camera move
@@ -6,9 +14,6 @@
     + emit migrate event on target sector (simple but wrong)
     + emit migrate event on current sector
     - be able to follow camera with object on dev-view
-- do not wait for step from all clients, emit steps on server
-  - freeze while waiting for migrations?
-  - async compare hashes
 - mechanism to enforce rules across sectors
   e.g. having only one tank to control
 - add async calls support
