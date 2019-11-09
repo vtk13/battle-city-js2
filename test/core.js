@@ -176,7 +176,7 @@ describe('server', ()=>{
         sector1.step();
         let res = await session3.sectorSubscribe('1:1');
         assert.deepStrictEqual(res, {sectorId: '1:1',
-            stepId: 1, objectsStepId: 0, objectsData: []});
+            stepId: 1, objectsStepId: -1, objectsData: []});
         await session1.confirmStep(sector1.sectorId, 0, 'A');
         await session2.confirmStep(sector1.sectorId, 0, 'A');
         assert.strictEqual(sector1._oldestPendingStep(), 1,
@@ -238,11 +238,12 @@ describe('server', ()=>{
     it('sync', async ()=>{
         sector1.syncInterval = 1;
         let [session1, session2] = await init('1:1', '1:1');
-        session1.getSector = sectorId=>({stepId: 1, objectsData: [{a: 1}]});
+        session1.getSector = (sectorId, stepId)=>({stepId, objectsData: [{a: 1}]});
         sector1.step();
         await session1.confirmStep(sector1.sectorId, 0, 'A');
         await session2.confirmStep(sector1.sectorId, 0, 'A');
-        console.log(sector1.objectsData);
+        assert.strictEqual(sector1.objectsStepId, 0);
+        assert.deepStrictEqual(sector1.objectsData, [{a: 1}]);
     });
 });
 

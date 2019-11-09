@@ -97,7 +97,8 @@ class BCClientSession {
     }
     // asks client to get sector data
     // client is expected to call setSector once received the message
-    getSector(sectorId){
+    // todo: remove setSector and return data here instead?
+    getSector(sectorId, stepId){
         // todo
     }
     // it is time to process another step
@@ -161,8 +162,8 @@ class BCServerSession {
         this.server.setSector(sectorId, objectsStepId, objects);
     }
     // asks client to get actual sector data
-    getSector(sectorId){
-        return this.connection.call('getSector', [sectorId]);
+    getSector(sectorId, stepId){
+        return this.connection.call('getSector', [sectorId, stepId]);
     }
     // it is time to process another step
     onStep(sectorId, stepId, userActions){
@@ -181,7 +182,7 @@ class BCServerSector2 {
         this.stepId = stepId;
         // stepId of objects snapshot (stepId+1)
         // objects are not synced every step
-        this.objectsStepId = stepId;
+        this.objectsStepId = stepId - 1;
         // latest available version of objects
         // data for objectsStepId
         this.objectsData = objectsData;
@@ -271,8 +272,7 @@ class BCServerSector2 {
         step.hashes[session.id] = hash;
         this._processHashesCycle(this._processHashes(stepId));
         if (step.confirmed)
-            if (_.filter(this.pendingSteps, {confirmed: true}).length>=this.syncInterval)
-                await this._syncObjects();
+            await this._maybeSyncObjects();
     }
     addAction(action){
         this.userActions.push(action);
@@ -309,9 +309,21 @@ class BCServerSector2 {
         }
         return stepsToProcess;
     }
-    async _syncObjects(){
-        let res = await this.sessions[0].getSector(this.sectorId);
-        console.log("RRR", res, this.pendingSteps);
+    async _maybeSyncObjects(){
+        let confirmedSteps = 0, lastConfirmedStep = this.objectsStepId;
+        for (let stepId in this.pendingSteps)
+        {
+            let {confirmed} = this.pendingSteps[stepId];
+            if (!confirmed)
+                break;
+            confirmedSteps++;
+            lastConfirmedStep = +stepId;
+        }
+        if (confirmedSteps<this.syncInterval)
+            return;
+        let res = await this.sessions[0].getSector(this.sectorId, lastConfirmedStep);
+        this.objectsStepId = res.stepId;
+        this.objectsData = res.objectsData;
     }
     _checkHash(objectsData, hash){
         // todo implement hashing
