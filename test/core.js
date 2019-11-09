@@ -99,13 +99,6 @@ describe('server', ()=>{
         connections.map(c=>c.close());
         httpServer.close(()=>resolve());
     }));
-    it('player connects to the server and gets sector objects', async ()=>{
-        let [session] = await init(false);
-        let {sectorId, stepId, objects} = await session.sectorSubscribe('2:2');
-        assert.strictEqual(sectorId, '2:2');
-        assert.strictEqual(stepId, 10);
-        assert.deepStrictEqual(objects, [{}, {}]);
-    });
     // sector is not functional without at least 2 clients
     it('initialization', async ()=>{
         let [session1, session2] = await init(false, false);
@@ -181,7 +174,9 @@ describe('server', ()=>{
     it('connection', async ()=>{
         let [session1, session2, session3] = await init('1:1', '1:1', false);
         sector1.step();
-        await session3.sectorSubscribe('1:1');
+        let res = await session3.sectorSubscribe('1:1');
+        assert.deepStrictEqual(res, {sectorId: '1:1',
+            stepId: 1, objectsStepId: 0, objectsData: []});
         await session1.confirmStep(sector1.sectorId, 0, 'A');
         await session2.confirmStep(sector1.sectorId, 0, 'A');
         assert.strictEqual(sector1._oldestPendingStep(), 1,
@@ -195,7 +190,7 @@ describe('server', ()=>{
         assert.strictEqual(sector1._oldestPendingStep(), 2,
             'step is confirmed once all clients sent equal hashes');
     });
-    it('disconnection', async ()=>{
+    it('disconnection normal', async ()=>{
         let [session1, session2, session3] = await init('1:1', '1:1', '1:1');
         sector1.step();
         await session1.confirmStep(sector1.sectorId, 0, 'A');
@@ -214,67 +209,41 @@ describe('server', ()=>{
             'step is confirmed once all clients sent equal hashes');
         assert(sector1._callChipAndDale.calledOnce);
     });
-    // it('player receives actual objects on connect', done=>{
-    //     let session1 = server.createSession();
-    //     session1.on('getSector', sectorId=>{
-    //         session1.setSector(sectorId, 235, [{}, {}, {}]);
-    //     });
-    //     session1.subscribe([1]);
-    //     session1.step(1, 234, 'A', [{key: 'w'}]);
-    //
-    //     let session2 = server.createSession();
-    //     session2.subscribe([1], (sectorId, stepId, objects)=>{
-    //         assert.strictEqual(stepId, 235);
-    //         assert.deepStrictEqual(objects, [{}, {}, {}]);
-    //         done();
-    //     });
-    // });
-    // it('player is unsubscribed', ()=>{
-    //     let session1 = server.createSession();
-    //     session1.subscribe([1]);
-    //     let session2 = server.createSession();
-    //     session2.subscribe([1]);
-    //     let called = 0;
-    //     session2.on('step', ()=>{
-    //         called++;
-    //     });
-    //     session1.step(1, 234, 'A', []);
-    //     session2.step(1, 234, 'A', []);
-    //     session2.unsubscribe([1]);
-    //     session1.step(1, 235, 'A', []);
-    //     // todo: ensure step is done
-    //     assert.strictEqual(called, 1);
-    // });
-    // it('kick all users on wrong hash', done=>{
-    //     let n = 0;
-    //     let onError = ()=>{
-    //         n++;
-    //         if (n===2)
-    //             done();
-    //     };
-    //     let session1 = server.createSession();
-    //     session1.subscribe([1]);
-    //     session1.on('error', onError);
-    //     let session2 = server.createSession();
-    //     session2.subscribe([1]);
-    //     session2.on('error', onError);
-    //     session1.step(1, 234, 'A', []);
-    //     session2.step(1, 234, 'B', []);
-    // });
-    // it('kick user on wrong hash', done=>{
-    //     let session1 = server.createSession();
-    //     session1.subscribe([1]);
-    //     session1.on('error', ()=>assert(false));
-    //     let session2 = server.createSession();
-    //     session2.subscribe([1]);
-    //     session2.on('error', ()=>assert(false));
-    //     let session3 = server.createSession();
-    //     session3.subscribe([1]);
-    //     session3.on('error', ()=>done());
-    //     session1.step(1, 234, 'B', []);
-    //     session2.step(1, 234, 'B', []);
-    //     session3.step(1, 234, 'X', []);
-    // });
+    it('kick user on wrong hash', async ()=>{
+        let [session1, session2, session3] = await init('1:1', '1:1', '1:1');
+        sector1.step();
+        let promise = new Promise(resolve=>{
+            session3.error = ()=>resolve();
+        });
+        await session1.confirmStep(sector1.sectorId, 0, 'A');
+        await session2.confirmStep(sector1.sectorId, 0, 'A');
+        await session3.confirmStep(sector1.sectorId, 0, 'X');
+        assert.strictEqual(sector1._oldestPendingStep(), 1,
+            'step confirmed with 2 steps');
+        return promise;
+    });
+    it('kick all users on wrong hash', async ()=>{
+        let [session1, session2, session3] = await init('1:1', '1:1', '1:1');
+        sector1.step();
+        let promise1 = new Promise(resolve=>{ session1.error = ()=>resolve(); });
+        let promise2 = new Promise(resolve=>{ session2.error = ()=>resolve(); });
+        let promise3 = new Promise(resolve=>{ session3.error = ()=>resolve(); });
+        await session1.confirmStep(sector1.sectorId, 0, 'A');
+        await session2.confirmStep(sector1.sectorId, 0, 'B');
+        await session3.confirmStep(sector1.sectorId, 0, 'C');
+        assert.strictEqual(sector1._oldestPendingStep(), 0, 'step is not confirmed');
+        // todo rollback pendingSteps
+        return Promise.all([promise1, promise2, promise3]);
+    });
+    it('sync', async ()=>{
+        sector1.syncInterval = 1;
+        let [session1, session2] = await init('1:1', '1:1');
+        session1.getSector = sectorId=>({stepId: 1, objectsData: [{a: 1}]});
+        sector1.step();
+        await session1.confirmStep(sector1.sectorId, 0, 'A');
+        await session2.confirmStep(sector1.sectorId, 0, 'A');
+        console.log(sector1.objectsData);
+    });
 });
 
 describe('client', ()=>{

@@ -102,16 +102,15 @@ class BCClientSession {
     }
     // it is time to process another step
     onStep(sectorId, stepId, userActions){
-        // todo
+        // todo return confirmStep()?
     }
     error(msg){
         // todo
     }
 }
 
-class BCServerSession extends EventEmitter {
+class BCServerSession {
     constructor(id, connection, server){
-        super();
         this.id = id;
         this.connection = new WsConnection(connection, this);
         this.server = server;
@@ -156,15 +155,14 @@ class BCServerSession extends EventEmitter {
         this.server.userAction(sectorId, userAction);
     }
     confirmStep(sectorId, stepId, hash){
-        this.server.confirmStep(sectorId, this, stepId, hash);
+        return this.server.confirmStep(sectorId, this, stepId, hash);
     }
     setSector(sectorId, objectsStepId, objects){
         this.server.setSector(sectorId, objectsStepId, objects);
     }
-    // asks client to get sector data
-    // client is expected to call setSector once received the message
+    // asks client to get actual sector data
     getSector(sectorId){
-        this.emit('getSector', sectorId);
+        return this.connection.call('getSector', [sectorId]);
     }
     // it is time to process another step
     onStep(sectorId, stepId, userActions){
@@ -181,38 +179,61 @@ class BCServerSector2 {
         // current step id
         // increased after step is done
         this.stepId = stepId;
-        // stepId of objects snapshot
+        // stepId of objects snapshot (stepId+1)
         // objects are not synced every step
         this.objectsStepId = stepId;
         // latest available version of objects
         // data for objectsStepId
-        // todo rename to this.objectsData
-        this.objects = objectsData;
+        this.objectsData = objectsData;
         this.sessions = [];
         this.maxStepDepth = 10;
+        this.syncInterval = 30;
         this.pendingSteps = {};
         this.userActions = [];
     }
     async connect(session){
         this.sessions.push(session);
-        if (this.stepId>this.objectsStepId)
-            await Object.values(this.sessions)[0].getSector(this.sectorId);
-        return {sectorId: this.sectorId, stepId: this.stepId, objects: this.objects};
+        return _.pick(this, ['sectorId', 'stepId', 'objectsStepId', 'objectsData']);
     }
-    disconnect(sessionId, error){
-        let session = _.find(this.sessions, {id: sessionId});
+    /**
+     *
+     * @param sessionId
+     * @param error
+     * @returns object {[stepId]: 1} steps to process again
+     */
+    _disconnect(sessionId, error){
+        let session;
+        this.sessions = _.filter(this.sessions, s=>{
+            if (s.id!=sessionId)
+                return true;
+            session = s;
+            return false;
+        });
         if (error)
             session.error(error);
+        let stepsToProcess = {};
         for (let stepId in this.pendingSteps)
         {
             let step = this.pendingSteps[stepId];
             if (step.confirmed)
                 continue;
             delete step.hashes[sessionId];
-            this._processStep(step);
+            stepsToProcess[stepId] = 1;
+        }
+        return stepsToProcess;
+    }
+    disconnect(sessionId, error){
+        this._processHashesCycle(this._disconnect(sessionId, error));
+    }
+    _processHashesCycle(stepsToProcess){
+        let stepId;
+        while ((stepId = Object.keys(stepsToProcess||{})[0])) {
+            delete stepsToProcess[stepId];
+            for (let anotherStepId in this._processHashes(stepId)||{})
+                stepsToProcess[anotherStepId] = 1;
         }
     }
-    step(){
+    _step(){
         if (this.sessions.length<2)
             return;
         this.pendingSteps[this.stepId] = {
@@ -228,35 +249,73 @@ class BCServerSector2 {
             session.onStep(this.sectorId, this.stepId, this.userActions);
         this.userActions = [];
         this.stepId++;
+        let stepsToProcess = {};
         if (_.filter(this.pendingSteps, {confirmed: false}).length>this.maxStepDepth)
         {
             let step = _.find(this.pendingSteps, {confirmed: false});
             for (let sessionId in step.hashes)
                 if (!step.hashes[sessionId])
-                    this.disconnect(+sessionId, 'timeout');
+                    Object.assign(stepsToProcess, this._disconnect(sessionId, 'timeout'));
         }
+        return stepsToProcess;
     }
-    confirmStep(session, stepId, hash){
+    step(){
+        this._processHashesCycle(this._step());
+    }
+    async confirmStep(session, stepId, hash){
         if (!(stepId in this.pendingSteps))
             throw new Error('Invalid stepId');
         let step = this.pendingSteps[stepId];
         if (!(session.id in step.hashes))
             throw new Error('Unexpected session');
         step.hashes[session.id] = hash;
-        this._processStep(step);
+        this._processHashesCycle(this._processHashes(stepId));
+        if (step.confirmed)
+            if (_.filter(this.pendingSteps, {confirmed: true}).length>=this.syncInterval)
+                await this._syncObjects();
     }
     addAction(action){
         this.userActions.push(action);
     }
-    _processStep(step){
+    _processHashes(stepId){
+        let step = this.pendingSteps[stepId];
         if (!_.every(step.hashes, Boolean))
             return;
         if (_.keys(step.hashes).length<2)
-            return void this._callChipAndDale();
+        {
+            this._callChipAndDale();
+            return;
+        }
         if (allEqual(step.hashes))
+        {
             step.confirmed = true;
-        else
-            throw new Error('TODO');
+            return;
+        }
+        let hashes = _.reduce(step.hashes, (acc, hash, sessionId)=>{
+            acc[hash] = acc[hash]||[];
+            acc[hash].push(sessionId);
+            return acc;
+        }, {});
+        hashes = _.orderBy(Object.entries(hashes), '1.length', 'desc');
+        let [hash, sessions] = hashes[0];
+        let disconnector = err=>sessionId=>this._disconnect(sessionId, err);
+        let stepsToProcess = {};
+        if (sessions.length<2)
+            Object.assign(stepsToProcess, sessions.map(disconnector('no majority')));
+        for (let i=1; i<hashes.length; i++)
+        {
+            [hash, sessions] = hashes[i];
+            Object.assign(stepsToProcess, sessions.map(disconnector('wrong hash')));
+        }
+        return stepsToProcess;
+    }
+    async _syncObjects(){
+        let res = await this.sessions[0].getSector(this.sectorId);
+        console.log("RRR", res, this.pendingSteps);
+    }
+    _checkHash(objectsData, hash){
+        // todo implement hashing
+        return true;
     }
     _oldestPendingStep(){
         let step = _.find(this.pendingSteps, {confirmed: false});
@@ -391,7 +450,7 @@ class BCServer extends EventEmitter {
     }
     confirmStep(sectorId, session, stepId, hash){
         let sector = this.sectors2[sectorId];
-        sector.confirmStep(session, stepId, hash);
+        return sector.confirmStep(session, stepId, hash);
     }
     setSector(sectorId, objectsStepId, objects){
         let sector = this.sectors[sectorId];
