@@ -92,12 +92,6 @@ class BCClientSession {
     confirmStep(sectorId, stepId, hash){
         return this.connection.call('confirmStep', [sectorId, stepId, hash]);
     }
-    setSector(sectorId, objectsStepId, objects){
-        this.server.setSector(sectorId, objectsStepId, objects);
-    }
-    // asks client to get sector data
-    // client is expected to call setSector once received the message
-    // todo: remove setSector and return data here instead?
     getSector(sectorId, stepId){
         // todo
     }
@@ -158,10 +152,7 @@ class BCServerSession {
     confirmStep(sectorId, stepId, hash){
         return this.server.confirmStep(sectorId, this, stepId, hash);
     }
-    setSector(sectorId, objectsStepId, objects){
-        this.server.setSector(sectorId, objectsStepId, objects);
-    }
-    // asks client to get actual sector data
+    // asks client to get sector data for certain stepId
     getSector(sectorId, stepId){
         return this.connection.call('getSector', [sectorId, stepId]);
     }
@@ -463,14 +454,6 @@ class BCServer extends EventEmitter {
     confirmStep(sectorId, session, stepId, hash){
         let sector = this.sectors2[sectorId];
         return sector.confirmStep(session, stepId, hash);
-    }
-    setSector(sectorId, objectsStepId, objects){
-        let sector = this.sectors[sectorId];
-        sector.objectsStepId = objectsStepId;
-        sector.objects = objects;
-        let onSubscribed;
-        while ((onSubscribed = sector.awaitingCallbacks.pop()))
-            onSubscribed(sectorId, objectsStepId, sector.objects);
     }
 }
 
