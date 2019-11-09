@@ -59,46 +59,64 @@ describe('util', ()=>{
     });
 });
 
-describe('server', ()=>{
-    let sb;
-    beforeEach(()=>{ sb = sinon.createSandbox(); });
-    afterEach(()=>sb.verifyAndRestore());
-    let server, sector1, sector2, httpServer, connections;
-    let connect = ()=>new Promise(resolve=>{
-        let client = new WebSocketClient();
-        client.on('connect', connection=>{
-            connections.push(connection);
-            resolve(new BCClientSession(connection));
+class TestServer {
+    constructor(sectors){
+        this.server = new BCServer(sectors);
+        this.httpServer = http.createServer(function(request, response){
+            response.writeHead(404);
+            response.end();
         });
-        let {port, address} = httpServer.address();
-        client.connect(`ws://${address}:${port}/`, 'echo-protocol');
-    });
+        this.connections = [];
+    }
+    listen(){
+        return new Promise(resolve=>{
+            let wsServer = new WebSocketServer({httpServer: this.httpServer,
+                autoAcceptConnections: false});
+            wsServer.on('request', request=>{
+                let connection = request.accept('echo-protocol', request.origin);
+                this.server.createSession(connection);
+            });
+            this.httpServer.listen(resolve);
+        });
+    }
+    connect(){
+        return new Promise(resolve=>{
+            let client = new WebSocketClient();
+            client.on('connect', connection=>{
+                this.connections.push(connection);
+                resolve(new BCClientSession(connection));
+            });
+            let {port, address} = this.httpServer.address();
+            client.connect(`ws://${address}:${port}/`, 'echo-protocol');
+        });
+    }
+    close(){
+        return new Promise(resolve=>{
+            this.connections.map(c=>c.close());
+            this.httpServer.close(()=>resolve());
+        });
+    }
+}
+
+describe('server', ()=>{
+    let sb, test_server, sector1, sector2;
     let init = (...args)=>Promise.all(args.map(async sector=>{
-        let session = await connect();
+        let session = await test_server.connect();
         if (sector)
             await session.sectorSubscribe(sector);
         return session;
     }));
-    beforeEach(()=>new Promise(resolve=>{
-        connections = [];
+    beforeEach(async function(){
+        sb = sinon.createSandbox();
         sector1 = new BCServerSector2('1:1', 0, []);
         sector2 = new BCServerSector2('2:2', 10, [{}, {}]);
-        server = new BCServer({'1:1': sector1, '2:2': sector2});
-        httpServer = http.createServer(function(request, response){
-            response.writeHead(404);
-            response.end();
-        });
-        let wsServer = new WebSocketServer({httpServer, autoAcceptConnections: false});
-        wsServer.on('request', function(request){
-            let connection = request.accept('echo-protocol', request.origin);
-            server.createSession(connection);
-        });
-        httpServer.listen(resolve);
-    }));
-    afterEach(()=>new Promise(resolve=>{
-        connections.map(c=>c.close());
-        httpServer.close(()=>resolve());
-    }));
+        test_server = new TestServer({'1:1': sector1, '2:2': sector2});
+        await test_server.listen();
+    });
+    afterEach(async function(){
+        await test_server.close();
+        sb.verifyAndRestore();
+    });
     // sector is not functional without at least 2 clients
     it('initialization', async ()=>{
         let [session1, session2] = await init(false, false);
