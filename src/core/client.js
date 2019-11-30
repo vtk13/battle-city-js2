@@ -177,7 +177,7 @@ class BCClientSector {
             sy--;
         else if ((sy+1)*this.sectorWidth<=y)
             sy++;
-        this.client.action(this.sectorId, {key: 'migrate',
+        this.client.userAction(this.sectorId, {key: 'migrate',
             sector: sx+':'+sy, object: this.exportObject(object)});
         return true;
     }

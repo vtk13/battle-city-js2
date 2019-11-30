@@ -310,16 +310,6 @@ class BCServer extends EventEmitter {
     sectorUnsubscribe(sectorId, sessionId){
         this.sectors[sectorId].disconnect(sessionId);
     }
-    // TODO: session is circular dependency
-    step(sectorId, stepId, hash, userActions, session){
-        let sector = this.sectors[sectorId];
-        sector.stepId = Math.max(sector.stepId, stepId);
-        // todo: confirm all client sent the same migrates
-        if (sector.step(session, stepId, hash, userActions))
-            for (let userAction of userActions)
-                if (userAction.key==='migrate')
-                    this.getSector(userAction.sector).addAction(userAction);
-    }
     userAction(sectorId, userAction){
         // todo: confirm all client sent the same migrates
         sectorId = userAction.key==='migrate' ? userAction.sector : sectorId;
