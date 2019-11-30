@@ -52,39 +52,14 @@ class BCClientSession {
         this.connection = new WsConnection(connection, this);
     }
     /**
-     * @param sectorIds
-     * @param onSubscribed function(sectorId, stepId, objects)
-     * @deprecated
-     */
-    subscribe(sectorIds, onSubscribed){
-        this.server.subscribe(sectorIds, (sectorId, stepId, objects)=>{
-            objects = JSON.parse(JSON.stringify(objects));
-            onSubscribed && onSubscribed(sectorId, stepId, objects);
-        }, this);
-    }
-    /**
      * @param sectorId
-     * @return {sectorId, stepId, objects}
+     * @return object {sectorId, stepId, objectsStepId, objectsData, userActions}
      */
     sectorSubscribe(sectorId){
         return this.connection.call('sectorSubscribe', [sectorId]);
     }
-    /**
-     * @param sectorIds
-     * @param onUnsubscribe function(sectorId)
-     */
-    unsubscribe(sectorIds, onUnsubscribe){
-        this.server.unsubscribe(sectorIds, this, onUnsubscribe);
-    }
     sectorUnsubscribe(sectorId){
         return this.connection.call('sectorUnsubscribe', [sectorId]);
-    }
-    step(sectorId, stepId, hash, userActions){
-        userActions = userActions.map(action=>{
-            action.sessionId = this.id;
-            return action;
-        });
-        this.server.step(sectorId, stepId, hash, userActions, this);
     }
     userAction(sectorId, userAction){
         return this.connection.call('userAction', [sectorId, userAction]);
@@ -92,6 +67,11 @@ class BCClientSession {
     confirmStep(sectorId, stepId, hash){
         return this.connection.call('confirmStep', [sectorId, stepId, hash]);
     }
+    /**
+     * @param sectorId
+     * @param stepId
+     * @return {stepId, objectsData}
+     */
     getSector(sectorId, stepId){
         // todo
     }
@@ -111,39 +91,14 @@ class BCServerSession {
         this.server = server;
     }
     /**
-     * @param sectorIds
-     * @param onSubscribed function(sectorId, stepId, objects)
-     * @deprecated
-     */
-    subscribe(sectorIds, onSubscribed){
-        this.server.subscribe(sectorIds, (sectorId, stepId, objects)=>{
-            objects = JSON.parse(JSON.stringify(objects));
-            onSubscribed && onSubscribed(sectorId, stepId, objects);
-        }, this);
-    }
-    /**
      * @param sectorId
-     * @param onSubscribed function(sectorId, stepId, objects)
+     * @return object {sectorId, stepId, objectsStepId, objectsData, userActions}
      */
-    sectorSubscribe(sectorId, onSubscribed){
+    sectorSubscribe(sectorId){
         return this.server.sectorSubscribe(sectorId, this);
-    }
-    /**
-     * @param sectorIds
-     * @param onUnsubscribe function(sectorId)
-     */
-    unsubscribe(sectorIds, onUnsubscribe){
-        this.server.unsubscribe(sectorIds, this, onUnsubscribe);
     }
     sectorUnsubscribe(sectorId){
         this.server.sectorUnsubscribe(sectorId, this.id);
-    }
-    step(sectorId, stepId, hash, userActions){
-        userActions = userActions.map(action=>{
-            action.sessionId = this.id;
-            return action;
-        });
-        this.server.step(sectorId, stepId, hash, userActions, this);
     }
     userAction(sectorId, userAction){
         userAction.sessionId = this.id;
@@ -165,10 +120,10 @@ class BCServerSession {
     }
 }
 
-class BCServerSector2 {
+class BCServerSector {
     constructor(sectorId = '0:0', stepId = 0, objectsData = {}){
         this.sectorId = sectorId;
-        // current step id
+        // current unfinished step id
         // increased after step is done
         this.stepId = stepId;
         // stepId of objects snapshot (stepId+1)
@@ -182,10 +137,15 @@ class BCServerSector2 {
         this.syncInterval = 30;
         this.pendingSteps = {};
         this.userActions = [];
+        this.minClients = 2;
     }
     async connect(session){
         this.sessions.push(session);
-        return _.pick(this, ['sectorId', 'stepId', 'objectsStepId', 'objectsData']);
+        let res = _.pick(this, ['sectorId', 'stepId', 'objectsStepId', 'objectsData']);
+        res.userActions = [];
+        for (let i = this.objectsStepId + 1; i<this.stepId; i++)
+            res.userActions.push(this.pendingSteps[i].userActions);
+        return res;
     }
     /**
      *
@@ -226,7 +186,7 @@ class BCServerSector2 {
         }
     }
     _step(){
-        if (this.sessions.length<2)
+        if (this.sessions.length<this.minClients)
             return;
         this.pendingSteps[this.stepId] = {
             stepId: this.stepId,
@@ -272,7 +232,7 @@ class BCServerSector2 {
         let step = this.pendingSteps[stepId];
         if (!_.every(step.hashes, Boolean))
             return;
-        if (_.keys(step.hashes).length<2)
+        if (_.keys(step.hashes).length<this.minClients)
         {
             this._callChipAndDale();
             return;
@@ -329,62 +289,6 @@ class BCServerSector2 {
     }
 }
 
-class BCServerSector {
-    constructor(sectorId, stepId, objectsData){
-        this.sectorId = sectorId;
-        // current step id
-        // increased after step is done
-        this.stepId = stepId;
-        // stepId of objects snapshot
-        // objects are not synced every step
-        this.objectsStepId = stepId;
-        // latest available version of objects
-        // data for objectsStepId
-        // todo rename to this.objectsData
-        this.objects = objectsData;
-        this.sessions = {};
-        this.awaitingCallbacks = [];
-        this.lastSteps = {};
-    }
-    _getStep(stepId){
-        if (!this.lastSteps[stepId])
-            this.lastSteps[stepId] = {n: 0, hashes: {}, userActions: []};
-        return this.lastSteps[stepId];
-    }
-    // todo test new connection then step for previous connection
-    //      ls.n will never be equal to sessions.length
-    step(session, stepId, hash, userActions){
-        let step = this._getStep(stepId);
-        step.hashes[hash] = step.hashes[hash] || [];
-        step.hashes[hash].push(session);
-        step.userActions.push(...userActions.filter(a=>a.key!=='migrate'));
-        step.n++;
-        // TODO: optimize Object.keys
-        if (step.n < Object.keys(this.sessions).length)
-            return false;
-        let hashes = Object.entries(step.hashes).sort((a, b)=>b[1].length-a[1].length);
-        if (hashes.length>1){
-            if (hashes[0][1].length===hashes[1][1].length){
-                for (let sessionId in this.sessions)
-                    this.sessions[sessionId].error('todo');
-            } else {
-                for (let i=1; i<hashes.length; i++)
-                    for (let session of hashes[i][1])
-                        session.error('todo');
-            }
-        }
-        for (let session of hashes[0][1])
-            session.onStep(this.sectorId, stepId, step.userActions);
-        this.stepId++;
-        return true;
-    }
-    // for server-side sector to sector events
-    addAction(action){
-        let step = this._getStep(this.stepId+1);
-        step.userActions.push(action);
-    }
-}
-
 class BCServer extends EventEmitter {
     constructor(sectors){
         super();
@@ -400,34 +304,8 @@ class BCServer extends EventEmitter {
     getSector(sectorId){
         return this.sectors[sectorId];
     }
-    subscribe(sectorIds, onSubscribed, session){
-        for (let sectorId of sectorIds){
-            let sector = this.getSector(sectorId);
-            if (onSubscribed){
-                if (sector.stepId>sector.objectsStepId){
-                    // todo save callbacks per sectorId
-                    sector.awaitingCallbacks.push(onSubscribed);
-                    Object.values(sector.sessions)[0].getSector(sectorId);
-                } else
-                    onSubscribed(sectorId, sector.stepId, sector.objects);
-            }
-            sector.sessions[session.id] = session;
-        }
-    }
     sectorSubscribe(sectorId, session){
         return this.getSector(sectorId).connect(session);
-    }
-    /**
-     * @deprecated
-     */
-    unsubscribe(sectorIds, session, onUnsubscribe){
-        for (let sectorId of sectorIds){
-            let sector = this.sectors[sectorId];
-            // todo: no sector case
-            if (sector)
-                delete sector.sessions[session.id];
-            onUnsubscribe && onUnsubscribe(sectorId);
-        }
     }
     sectorUnsubscribe(sectorId, sessionId){
         this.sectors[sectorId].disconnect(sessionId);
@@ -457,4 +335,4 @@ class BCServer extends EventEmitter {
     }
 }
 
-module.exports = {BCServer, BCServerSector, BCServerSector2, WsConnection, BCClientSession};
+module.exports = {BCServer, BCServerSector, WsConnection, BCClientSession};

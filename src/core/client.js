@@ -20,12 +20,13 @@ class BCClient extends EventEmitter {
         this.sectors = {};
         this.session = session;
         this.factory = factory;
-        session.on('step', this.onStep.bind(this));
-        session.on('getSector', sectorId=>{
-            let stepId = this.sectors[sectorId].stepId;
-            let objects = this.sectors[sectorId].exportObjects();
-            session.setSector(sectorId, stepId, objects);
-        });
+        session.onStep = this.onStep.bind(this);
+        session.getSector = (sectorId, stepId)=>{
+            // let stepId = this.sectors[sectorId].stepId;
+            // todo keep history for pending steps?
+            let objectsData = this.sectors[sectorId].exportObjects();
+            return {stepId, objectsData};
+        };
     }
     _checkCoord(c, edge){
         let w = this.sectorWidth;
@@ -61,43 +62,38 @@ class BCClient extends EventEmitter {
             +this._checkCoord(y, this.sectorWidth>>1);
         let toKeep = _.uniq(toSubscribe.concat(
             subscribeMap[keepKey].map(([dx, dy])=>(sx+dx)+':'+(sy+dy))));
-        this.subscribe(_.difference(toSubscribe, currentSectors));
-        this.unsubscribe(_.difference(currentSectors, toKeep));
+        _.difference(toSubscribe, currentSectors)
+            .map(sectorId=>this.sectorSubscribe(sectorId));
+        _.difference(currentSectors, toKeep)
+            .map(sectorId=>this.sectorUnsubscribe(sectorId));
     }
-    subscribe(sectorIds, onSubscribed){
-        this.session.subscribe(sectorIds, (sectorId, stepId, objects)=>{
-            this.sectors[sectorId] = new BCClientSector(
-                sectorId, this.sectorWidth, stepId, this, this.factory);
-            this.sectors[sectorId].importObjects(objects);
-            onSubscribed && onSubscribed(sectorId);
-        });
+    // @todo lock?
+    async sectorSubscribe(sectorId){
+        let {stepId, objectsStepId, objectsData, userActions} =
+            await this.session.sectorSubscribe(sectorId);
+        this.sectors[sectorId] = new BCClientSector(
+            sectorId, this.sectorWidth, objectsStepId+1, this, this.factory);
+        this.sectors[sectorId].importObjects(objectsData);
+        for (let i = objectsStepId+1; i<stepId; i++)
+            this.sectors[sectorId].onStep(i, userActions.shift());
     }
-    unsubscribe(sectorIds){
-        this.session.unsubscribe(sectorIds, sectorId=>{
-            delete this.sectors[sectorId];
-        });
+    // @todo lock?
+    async sectorUnsubscribe(sectorId){
+        await this.session.sectorUnsubscribe(sectorId);
+        delete this.sectors[sectorId];
     }
-    action(sectorId, action){
-        this.sectors[sectorId].userActions.push(action);
+    async userAction(sectorId, userAction){
+        return await this.session.userAction(sectorId, userAction);
     }
-    /**
-     * @param sectorIds string|Array|undefined
-     */
-    completeStep(sectorIds){
-        if (!sectorIds)
-            sectorIds = Object.keys(this.sectors);
-        if (!Array.isArray(sectorIds))
-            sectorIds = [sectorIds];
-        let finalized = _.map(_.pick(this.sectors, sectorIds),
-            sector=>({sector, res: sector.completeStep()}));
-        finalized.map(({sector, res})=>
-            this.session.step(sector.sectorId, res.stepId, res.hash, res.userActions));
+    async confirmStep(sectorId, stepId, hash){
+        return await this.session.confirmStep(sectorId, stepId, hash);
     }
     onStep(sectorId, stepId, userActions){
         if (!this.sectors[sectorId])
             throw new Error('invalid sectorId');
         this.sectors[sectorId].onStep(stepId, userActions);
-        this.emit('step', sectorId);
+        // for unt tests
+        this.emit('step', sectorId, stepId);
     }
 }
 
@@ -121,16 +117,12 @@ class BCClientSector {
     exportObject(object){
         return _.omit(object, 'sector');
     }
-    completeStep(){
-        let userActions = this.userActions;
-        this.userActions = [];
-        return {stepId: this.stepId, hash: 'A', userActions}
-    }
     onStep(stepId, userActions){
         if (this.stepId!==stepId)
             throw new Error('mismatch stepId');
         this.stepId++;
-        for (let action of userActions){
+        for (let action of userActions)
+        {
             let {sessionId} = action;
             let target = _.find(this.objects, {sessionId});
             switch (action.key){

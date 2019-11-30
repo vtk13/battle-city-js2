@@ -3,8 +3,8 @@ const assert = require('assert');
 const sinon = require('sinon');
 const http = require('http');
 const {server: WebSocketServer, client: WebSocketClient} = require('websocket');
-const {BCServer, BCServerSector, BCServerSector2, WsConnection,
-    BCClientSession} = require('../src/core/server');
+const {BCServer, BCServerSector, WsConnection, BCClientSession} =
+    require('../src/core/server');
 const {BCClient, BCObjectFactory} = require('../src/core/client');
 const {Tank} = require('../src/battle-city/tank');
 
@@ -108,8 +108,8 @@ describe('server', ()=>{
     }));
     beforeEach(async function(){
         sb = sinon.createSandbox();
-        sector1 = new BCServerSector2('1:1', 0, []);
-        sector2 = new BCServerSector2('2:2', 10, [{}, {}]);
+        sector1 = new BCServerSector('1:1', 0, []);
+        sector2 = new BCServerSector('2:2', 10, [{}, {}]);
         test_server = new TestServer({'1:1': sector1, '2:2': sector2});
         await test_server.listen();
     });
@@ -194,7 +194,7 @@ describe('server', ()=>{
         sector1.step();
         let res = await session3.sectorSubscribe('1:1');
         assert.deepStrictEqual(res, {sectorId: '1:1',
-            stepId: 1, objectsStepId: -1, objectsData: []});
+            stepId: 1, objectsStepId: -1, objectsData: [], userActions: [[]]});
         await session1.confirmStep(sector1.sectorId, 0, 'A');
         await session2.confirmStep(sector1.sectorId, 0, 'A');
         assert.strictEqual(sector1._oldestPendingStep(), 1,
@@ -266,39 +266,63 @@ describe('server', ()=>{
 });
 
 describe('client', ()=>{
-    let server, factory, sector1 = '0:0', sector2 = '0:-1';
-    beforeEach(()=>{
+    let test_server, server, factory, sector1, sector2;
+    let init = (...args)=>Promise.all(args.map(async sector=>{
+        let client = new BCClient(await test_server.connect(), factory);
+        if (sector)
+            await client.sectorSubscribe(sector);
+        return client;
+    }));
+    beforeEach(async function(){
         factory = new BCObjectFactory();
         factory.register('tank', Tank);
-        server = new BCServer({
-            [sector1]: new BCServerSector(sector1, 0,
-                [{className: 'tank', sessionId: 1, x: 5, y: 5}]),
-            [sector2]: new BCServerSector(sector2, 0, []),
-        });
+        sector1 = new BCServerSector('0:0', 0,
+            [{className: 'tank', sessionId: 1, x: 5, y: 5}]);
+        sector2 = new BCServerSector('0:-1', 0, []);
+        test_server = new TestServer({'0:0': sector1, '0:-1': sector2});
+        await test_server.listen();
     });
-    it('simple', ()=>{
-        let client1 = new BCClient(server.createSession(), factory);
-        client1.subscribe([sector1]);
-        let client2 = new BCClient(server.createSession(), factory);
-        client2.subscribe([sector1]);
-        sinon.assert.match(client1.sectors[sector1].objects[0],
+    afterEach(async function(){
+        await test_server.close();
+    });
+    it('simple', async ()=>{
+        let [client1, client2] = await init('0:0', '0:0');
+        sinon.assert.match(client1.sectors['0:0'].objects[0],
             sinon.match({className: 'tank', x: 5, y: 5}));
-        client1.action(sector1, {key: 'w'});
-        client1.completeStep(sector1);
-        client2.completeStep(sector1);
-        sinon.assert.match(client1.sectors[sector1].objects[0],
-            sinon.match({className: 'tank', x: 5, y: 15}));
-        sinon.assert.match(client2.sectors[sector1].objects[0],
-            sinon.match({className: 'tank', x: 5, y: 15}));
+        await client1.userAction('0:0', {key: 'w'});
+        let waiters = Promise.all([
+            new Promise(resolve=>client1.once('step', resolve)),
+            new Promise(resolve=>client2.once('step', resolve)),
+        ]);
+        sector1.step();
+        await waiters;
+        assert.deepStrictEqual(
+            _.pick(client1.sectors['0:0'].objects[0],
+                ['className', 'x', 'y']),
+            {className: 'tank', x: 5, y: 15}
+        );
+        assert.deepStrictEqual(
+            _.pick(client2.sectors['0:0'].objects[0],
+                ['className', 'x', 'y']),
+            {className: 'tank', x: 5, y: 15}
+        );
     });
-    it('client gets actual state from another client', ()=>{
-        let client1 = new BCClient(server.createSession(), factory);
-        client1.subscribe([sector1]);
-        client1.action(sector1, {key: 'w'});
-        client1.completeStep(sector1);
-        let client2 = new BCClient(server.createSession(), factory);
-        client2.subscribe([sector1]);
-        sinon.assert.match(client2.sectors[sector1].objects[0],
+    it('client2 catches up client1 state when connecting 1 step after client1', async ()=>{
+        sector1.minClients = 1;
+        let [client1, client2] = await init('0:0', false);
+        await client1.userAction('0:0', {key: 'w'});
+        let next = new Promise(resolve=>{
+            client1.on('step', async function(sectorId, stepId){
+                await client1.confirmStep(sectorId, stepId, 'A');
+                resolve();
+            });
+        });
+        sector1.step();
+        await next;
+        await client2.sectorSubscribe('0:0');
+        sinon.assert.match(client1.sectors['0:0'].objects[0],
+            sinon.match({className: 'tank', x: 5, y: 15}));
+        sinon.assert.match(client2.sectors['0:0'].objects[0],
             sinon.match({className: 'tank', x: 5, y: 15}));
     });
     describe('loading sectors', ()=>{
@@ -317,19 +341,19 @@ describe('client', ()=>{
     describe('object migration', ()=>{
         it('simple', ()=>{
             let client1 = new BCClient(server.createSession(), factory);
-            client1.subscribe([sector1, sector2]);
-            client1.action(sector1, {key: 's'});
+            client1.subscribe(['0:0', '0:-1']);
+            client1.action('0:0', {key: 's'});
             // moving command received on this step
             client1.completeStep();
             // object moves and migration command is sent to sector2
             client1.completeStep();
-            assert.deepStrictEqual(client1.sectors[sector1].objects, []);
+            assert.deepStrictEqual(client1.sectors['0:0'].objects, []);
             // sector2 receives and executes migration
             client1.completeStep();
             // another step to verify migrate event received only once
             client1.completeStep();
-            assert.strictEqual(client1.sectors[sector2].objects.length, 1);
-            sinon.assert.match(client1.sectors[sector2].objects, [sinon.match({x: 5, y: -25})]);
+            assert.strictEqual(client1.sectors['0:-1'].objects.length, 1);
+            sinon.assert.match(client1.sectors['0:-1'].objects, [sinon.match({x: 5, y: -25})]);
         });
     });
 });
