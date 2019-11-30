@@ -62,10 +62,10 @@ class BCClient extends EventEmitter {
             +this._checkCoord(y, this.sectorWidth>>1);
         let toKeep = _.uniq(toSubscribe.concat(
             subscribeMap[keepKey].map(([dx, dy])=>(sx+dx)+':'+(sy+dy))));
-        _.difference(toSubscribe, currentSectors)
-            .map(sectorId=>this.sectorSubscribe(sectorId));
-        _.difference(currentSectors, toKeep)
-            .map(sectorId=>this.sectorUnsubscribe(sectorId));
+        toSubscribe = _.difference(toSubscribe, currentSectors);
+        let toUnsubscribe = _.difference(currentSectors, toKeep);
+        return [...toSubscribe.map(sectorId=>this.sectorSubscribe(sectorId)),
+            ...toUnsubscribe.map(sectorId=>this.sectorUnsubscribe(sectorId))];
     }
     // @todo lock?
     async sectorSubscribe(sectorId){

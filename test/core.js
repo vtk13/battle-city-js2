@@ -307,7 +307,7 @@ describe('client', ()=>{
             {className: 'tank', x: 5, y: 15}
         );
     });
-    it('client2 catches up client1 state when connecting 1 step after client1', async ()=>{
+    it('client2 catches up client1 state when connecting 1 step later', async ()=>{
         sector1.minClients = 1;
         let [client1, client2] = await init('0:0', false);
         await client1.userAction('0:0', {key: 'w'});
@@ -326,15 +326,17 @@ describe('client', ()=>{
             sinon.match({className: 'tank', x: 5, y: 15}));
     });
     describe('loading sectors', ()=>{
-        it('pub sub', ()=>{
-            let client = new BCClient(server.createSession(), factory);
-            sinon.stub(client.session, 'subscribe')
-                .callsFake((sectorIds, onSubscribed)=>{
-                    sectorIds.map(id=>onSubscribed(id, 0, []));
+        it('pub sub', async ()=>{
+            let [client] = await init(false);
+            sinon.stub(client.session, 'sectorSubscribe')
+                .callsFake(sectorId=>{
+                    return {sectorId, stepId: 0, objectStepId: 0,
+                        objectsData: [], userActions: []};
                 });
-            client.setCamXY(0, 0);
+            sinon.stub(client.session, 'sectorUnsubscribe');
+            await client.setCamXY(0, 0);
             assert.deepStrictEqual(Object.keys(client.sectors), ['0:0', '-1:0', '-1:-1', '0:-1']);
-            client.setCamXY(300, 300);
+            await client.setCamXY(300, 300);
             assert.deepStrictEqual(Object.keys(client.sectors), ['0:0', '1:1', '0:1', '1:0']);
         });
     });
